@@ -1,0 +1,47 @@
+[
+  {
+    "id": "1772559164166",
+    "name": "Shruti",
+    "email": "honim27040@keecs.com",
+    "password": "$2b$10$0A9D5Zla1/BipuGuF0ZCYufTF3.R22e2izf8xcy53MPgdLkD9Oueq",
+    "role": "patient",
+    "createdAt": "2026-03-03T17:32:44.166Z",
+    "age": "21",
+    "mobile": "12345678",
+    "address": "Bhopal"
+  },
+  {
+    "id": "admin-1772614431227",
+    "name": "MedicAtDoor Administrator (Shruti)",
+    "email": "Shruti00@medic.com",
+    "password": "$2b$10$iq1XgQZIxogw/9bLyoj9p.YrFbPYi/6rTaCWfhkzfSTohwvyyDqOu",
+    "role": "admin",
+    "createdAt": "2026-03-04T08:53:51.227Z"
+  },
+  {
+    "id": "1772614963573",
+    "name": "Dr.Sarah ",
+    "email": "sarah@gmail.com",
+    "password": "$2b$10$qxWEWZ82RtXdMe2WgpChK.KlnGRPHQPCv7FkfssKEHvryXTsm6d3y",
+    "role": "doctor",
+    "createdAt": "2026-03-04T09:02:43.573Z",
+    "degree": "MBBS",
+    "specialization": "Cardologist",
+    "experience": "10",
+    "linkedin": "https://www.linkedin.com/in/shruti-jain-3b80ab293/",
+    "specialFieldProfile": "https://www.linkedin.com/in/shruti-jain-3b80ab293/"
+  },
+  {
+    "id": "1772615020549",
+    "name": "Dr.sarah",
+    "email": "sarah@med.com",
+    "password": "$2b$10$LfHdk7erfVzFD4MnMAORx.dxPvN4ot148LkHz8mI8vrdYk0tqLt2q",
+    "role": "doctor",
+    "createdAt": "2026-03-04T09:03:40.549Z",
+    "degree": "MBBS",
+    "specialization": "Cardiologist",
+    "experience": "10",
+    "linkedin": "https://www.linkedin.com/in/shruti-jain-3b80ab293/",
+    "specialFieldProfile": "https://www.linkedin.com/in/shruti-jain-3b80ab293/"
+  }
+]
