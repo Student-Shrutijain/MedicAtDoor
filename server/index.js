@@ -13,9 +13,15 @@ import http from 'http';
 import Doctor from './models/Doctor.js';
 import Medicine from './models/Medicine.js';
 import Prescription from './models/Prescription.js';
+import Order from './models/Order.js';
+import Broadcast from './models/Broadcast.js';
+import Quote from './models/Quote.js';
+import Inventory from './models/Inventory.js';
 import User from './models/User.js';
 import Appointment from './models/Appointment.js';
 import HealthRecord from './models/HealthRecord.js';
+import Symptom from './models/Symptom.js';
+import Specialty from './models/Specialty.js';
 
 // Middleware
 import { protect, authorize } from './middleware/auth.js';
@@ -175,47 +181,66 @@ mongoose.connect(MONGODB_URI)
 // Database Seeding (Initial setup)
 const seedDatabase = async () => {
     try {
+        const seedUsersPath = path.join(__dirname, 'data', 'users.json');
+        if (fs.existsSync(seedUsersPath)) {
+            const initialUsers = JSON.parse(fs.readFileSync(seedUsersPath, 'utf8'));
+            for (const u of initialUsers) {
+                const userExists = await User.findOne({ email: u.email });
+                if (!userExists) {
+                    const role = u.role.charAt(0).toUpperCase() + u.role.slice(1).toLowerCase();
+                    await User.create({
+                        ...u,
+                        role,
+                        doctorProfile: role === 'Doctor' ? {
+                            specialization: u.specialization || 'General',
+                            experience: u.experience || '1 Year',
+                            degree: u.degree || 'MBBS',
+                            status: 'Live'
+                        } : undefined
+                    });
+                    console.log(`Seeded user: ${u.email}`);
+                }
+            }
+        }
+
         const doctorCount = await Doctor.countDocuments();
         if (doctorCount === 0) {
-            const initialDoctors = [
-                { name: 'Dr. Sarah Wilson', specialization: 'Physician', experience: '12 years', fees: 500, status: 'Live', rating: 4.8 },
-                { name: 'Dr. James Miller', specialization: 'Cardiologist', experience: '15 years', fees: 1200, status: 'Busy', rating: 4.9 },
-                { name: 'Dr. Elena Rodriguez', specialization: 'Pediatrician', experience: '8 years', fees: 600, status: 'Away', rating: 4.7 },
-                { name: 'Dr. David Chen', specialization: 'Dermatologist', experience: '10 years', fees: 800, status: 'Live', rating: 4.6 },
-                { name: 'Dr. Amara Kaur', specialization: 'Physician', experience: '5 years', fees: 400, status: 'Live', rating: 4.5 },
-                { name: 'Dr. Robert Brown', specialization: 'Pediatrician', experience: '14 years', fees: 700, status: 'Live', rating: 4.9 },
-                { name: 'Dr. Lisa Wang', specialization: 'Physician', experience: '9 years', fees: 550, status: 'Busy', rating: 4.6 },
-                { name: 'Dr. Michael Scott', specialization: 'Gynaecologist', experience: '20 years', fees: 1500, status: 'Live', rating: 4.8 },
-                { name: 'Dr. Angela Martin', specialization: 'Gynaecologist', experience: '11 years', fees: 900, status: 'Live', rating: 4.7 },
-                { name: 'Dr. Oscar Martinez', specialization: 'Cardiologist', experience: '18 years', fees: 1800, status: 'Busy', rating: 4.9 },
-                { name: 'Dr. Kevin Malone', specialization: 'Dietitian', experience: '7 years', fees: 400, status: 'Live', rating: 4.2 },
-                { name: 'Dr. Pam Beesly', specialization: 'Dermatologist', experience: '6 years', fees: 750, status: 'Live', rating: 4.7 },
-                { name: 'Dr. Jim Halpert', specialization: 'Orthopedician', experience: '10 years', fees: 1100, status: 'Live', rating: 4.8 },
-                { name: 'Dr. Dwight Schrute', specialization: 'General Surgeon', experience: '15 years', fees: 2000, status: 'Busy', rating: 4.9 },
-                { name: 'Dr. Stanley Hudson', specialization: 'Cardiologist', experience: '22 years', fees: 1400, status: 'Away', rating: 4.5 },
-                { name: 'Dr. Phyllis Vance', specialization: 'Dietitian', experience: '12 years', fees: 600, status: 'Live', rating: 4.7 },
-                { name: 'Dr. Andy Bernard', specialization: 'Physician', experience: '8 years', fees: 500, status: 'Live', rating: 4.4 },
-                { name: 'Dr. Darryl Philbin', specialization: 'Orthopedician', experience: '9 years', fees: 1000, status: 'Live', rating: 4.8 },
-                { name: 'Dr. Kelly Kapoor', specialization: 'Dermatologist', experience: '5 years', fees: 800, status: 'Busy', rating: 4.6 },
-                { name: 'Dr. Ryan Howard', specialization: 'Pediatrician', experience: '4 years', fees: 450, status: 'Live', rating: 4.1 },
-                { name: 'Dr. David Wallace', specialization: 'Cardiologist', experience: '25 years', fees: 2500, status: 'Live', rating: 5.0 },
-                { name: 'Dr. Jo Bennett', specialization: 'General Surgeon', experience: '35 years', fees: 5000, status: 'Live', rating: 5.0 },
-            ];
-            await Doctor.insertMany(initialDoctors);
-            console.log('Doctors seeded successfully');
+            const seedDoctorsPath = path.join(__dirname, 'data', 'seedDoctors.json');
+            if (fs.existsSync(seedDoctorsPath)) {
+                const initialDoctors = JSON.parse(fs.readFileSync(seedDoctorsPath, 'utf8'));
+                await Doctor.insertMany(initialDoctors);
+                console.log('Doctors seeded successfully');
+            }
         }
 
         const medCount = await Medicine.countDocuments();
         if (medCount === 0) {
-            const initialMedicines = [
-                { name: 'Paracetamol 500mg', category: 'General', price: 50, symptoms: ['headache', 'fever', 'pain'] },
-                { name: 'Amoxicillin 250mg', category: 'Antibiotic', price: 120, symptoms: ['infection', 'throat', 'fever'] },
-                { name: 'Cough Syrup (100ml)', category: 'General', price: 180, symptoms: ['cough', 'cold', 'throat'] },
-                { name: 'Vitamin D3 (60k UI)', category: 'Supplement', price: 250, symptoms: ['fatigue', 'bone'] },
-                { name: 'Antacid Gel', category: 'General', price: 90, symptoms: ['stomach', 'acidity', 'gas'] },
-            ];
-            await Medicine.insertMany(initialMedicines);
-            console.log('Medicines seeded successfully');
+            const seedMedicinesPath = path.join(__dirname, 'data', 'seedMedicines.json');
+            if (fs.existsSync(seedMedicinesPath)) {
+                const initialMedicines = JSON.parse(fs.readFileSync(seedMedicinesPath, 'utf8'));
+                await Medicine.insertMany(initialMedicines);
+                console.log('Medicines seeded successfully');
+            }
+        }
+
+        const symptomCount = await Symptom.countDocuments();
+        if (symptomCount === 0) {
+            const seedSymptomsPath = path.join(__dirname, 'data', 'seedSymptoms.json');
+            if (fs.existsSync(seedSymptomsPath)) {
+                const initialSymptoms = JSON.parse(fs.readFileSync(seedSymptomsPath, 'utf8'));
+                await Symptom.insertMany(initialSymptoms);
+                console.log('Symptoms seeded successfully');
+            }
+        }
+
+        const specialtyCount = await Specialty.countDocuments();
+        if (specialtyCount === 0) {
+            const seedSpecialtiesPath = path.join(__dirname, 'data', 'seedSpecialties.json');
+            if (fs.existsSync(seedSpecialtiesPath)) {
+                const initialSpecialties = JSON.parse(fs.readFileSync(seedSpecialtiesPath, 'utf8'));
+                await Specialty.insertMany(initialSpecialties);
+                console.log('Specialties seeded successfully');
+            }
         }
     } catch (err) {
         console.error('Seeding error:', err);
@@ -230,8 +255,35 @@ app.get('/api/health', (req, res) => {
 // Doctors API
 app.get('/api/doctors', async (req, res) => {
     try {
-        const doctors = await Doctor.find();
-        res.json(doctors);
+        // First try to find users with role 'Doctor'
+        const users = await User.find({ role: 'Doctor' }).select('-password');
+        let mappedDoctors = users.map(u => ({
+            _id: u._id,
+            id: u._id,
+            name: u.name,
+            specialization: u.doctorProfile?.specialization || 'General',
+            experience: u.doctorProfile?.experience || '1 Year',
+            fees: u.doctorProfile?.fees || 0,
+            status: u.doctorProfile?.status || 'Live',
+            rating: u.doctorProfile?.rating || 4.5,
+            image: u.doctorProfile?.image
+        }));
+
+        // Also fetch from Doctor collection (seeded data)
+        const seededDoctors = await Doctor.find();
+        const mappedSeeded = seededDoctors.map(d => ({
+            _id: d._id,
+            id: d._id,
+            name: d.name,
+            specialization: d.specialization,
+            experience: d.experience,
+            fees: d.fees,
+            status: d.status,
+            rating: d.rating,
+            image: d.image
+        }));
+
+        res.json([...mappedDoctors, ...mappedSeeded]);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -240,8 +292,138 @@ app.get('/api/doctors', async (req, res) => {
 // Medicines API
 app.get('/api/medicines', async (req, res) => {
     try {
-        const medicines = await Medicine.find();
+        const query = req.query.merchantName ? { storeName: req.query.merchantName } : {};
+        // We'll return all medicines for now or filter by merchantName if provided (though seed data doesn't have merchantName for all)
+        const medicines = await Medicine.find(query);
         res.json(medicines);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+app.post('/api/medicines', async (req, res) => {
+    try {
+        const newMed = new Medicine({
+            name: req.body.name,
+            category: req.body.category || 'General',
+            price: req.body.price || 0,
+            inventory: req.body.inventory || 0,
+            storeName: req.body.merchantName
+        });
+        await newMed.save();
+        res.status(201).json(newMed);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+});
+
+app.patch('/api/medicines/:id', async (req, res) => {
+    try {
+        const id = req.params.id;
+        const updated = await Medicine.findByIdAndUpdate(id, { $set: req.body }, { new: true });
+        res.json(updated);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+});
+
+// --- NEW SEPARATE INVENTORY API ---
+app.get('/api/inventory', async (req, res) => {
+    const { merchantName } = req.query;
+    if (!merchantName) return res.status(400).json({ message: 'merchantName is required' });
+    
+    try {
+        // 1. Fetch global catalog
+        const defaultCatalog = await Medicine.find();
+        
+        // 2. Fetch specific merchant inventory overrides/additions
+        const merchantInventory = await Inventory.find({ merchantName });
+        
+        // 3. Merge them
+        // Start with the catalog
+        const mergedMap = new Map();
+        defaultCatalog.forEach(med => {
+            mergedMap.set(med.name.toLowerCase(), {
+                name: med.name,
+                category: med.category,
+                price: med.price,
+                inventory: 0, // Default to 0 stock until the merchant specifically adds/edits it
+                isCustom: false,
+                catalogId: med._id
+            });
+        });
+        
+        // Apply merchant specific data (overrides and custom additions)
+        merchantInventory.forEach(inv => {
+            mergedMap.set(inv.name.toLowerCase(), {
+                _id: inv._id, // True Inventory ID for patches
+                name: inv.name,
+                category: inv.category,
+                price: inv.price,
+                inventory: inv.inventory,
+                isCustom: inv.isCustom
+            });
+        });
+
+        res.json(Array.from(mergedMap.values()));
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+app.post('/api/inventory', async (req, res) => {
+    try {
+        // Force isCustom = true since they are manually adding it
+        const newInv = new Inventory({ ...req.body, isCustom: true });
+        await newInv.save();
+        res.status(201).json(newInv);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+});
+
+app.patch('/api/inventory/:id', async (req, res) => {
+    try {
+        // See if the ID belongs to an existing Inventory item
+        const id = req.params.id;
+        let updateData = req.body;
+        
+        // If the ID passed is a catalogId (no prior Inventory record), we need to create one
+        const existingInv = await Inventory.findById(id);
+        if (!existingInv) {
+            // Check if it's actually a catalog string name or catalog ID being sent by mistake.
+            // The frontend should ideally send Name or Category if creating a fresh record.
+            // Assuming the frontend passes full details in body for a fresh record if id was absent:
+            if(req.body.name && req.body.merchantName) {
+                const freshInv = new Inventory({ ...req.body, isCustom: false });
+                await freshInv.save();
+                return res.json(freshInv);
+            }
+            return res.status(404).json({ message: 'Inventory record not found and insufficient data to create one.' });
+        }
+
+        const updated = await Inventory.findByIdAndUpdate(id, { $set: updateData }, { new: true });
+        res.json(updated);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+});
+
+// Symptoms API
+app.get('/api/symptoms', async (req, res) => {
+    try {
+        const symptoms = await Symptom.find();
+        res.json(symptoms);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Specialties API
+app.get('/api/specialties', async (req, res) => {
+    try {
+        const specialties = await Specialty.find();
+        res.json(specialties);
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -249,19 +431,25 @@ app.get('/api/medicines', async (req, res) => {
 
 // Prescription API
 app.post('/api/prescriptions', async (req, res) => {
-    const { doctorId, patientName, medicineName, dosage, instructions } = req.body;
+    const { doctorId, doctorName, patientId, patientEmail, patientName, medicines, problem } = req.body;
 
     try {
         const newRx = new Prescription({
             id: `RX-${Date.now()}`,
             doctorId,
+            doctorName,
+            patientId,
+            patientEmail,
             patientName,
-            medicineName,
-            dosage,
-            instructions
+            medicines,
+            problem
         });
 
         await newRx.save();
+
+        // Notify patient and merchants via Socket.io
+        io.emit('new-prescription', newRx);
+
         res.status(201).json({ message: 'Prescription created', prescription: newRx });
     } catch (err) {
         res.status(400).json({ message: err.message });
@@ -313,6 +501,22 @@ app.get('/api/appointments', async (req, res) => {
 app.patch('/api/appointments/:id', async (req, res) => {
     try {
         const updated = await Appointment.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        
+        // Notify patient with granular types
+        let notificationType = 'STATUS_UPDATE';
+        if (req.body.status === 'Processing') notificationType = 'ACCEPTED';
+        else if (req.body.status === 'Declined') notificationType = 'DECLINED';
+        else if (req.body.historyAcknowledged === true) notificationType = 'HISTORY_ACKNOWLEDGED';
+
+        io.emit('appointment-update', {
+            type: notificationType,
+            appointmentId: updated._id,
+            status: updated.status,
+            patientId: updated.patientId,
+            patientEmail: updated.patientEmail,
+            doctorName: updated.doctorName
+        });
+        
         res.json(updated);
     } catch (err) {
         res.status(400).json({ message: err.message });
@@ -368,20 +572,77 @@ app.get('/api/users/profile', async (req, res) => {
     }
 });
 
+// Broadcasts API
+app.get('/api/broadcasts', async (req, res) => {
+    try {
+        const broadcasts = await Broadcast.find().sort({ createdAt: -1 });
+        res.json(broadcasts);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Quotes API
+app.get('/api/quotes', async (req, res) => {
+    try {
+        const { patientEmail } = req.query;
+        const query = patientEmail ? { patientEmail } : {};
+        const quotes = await Quote.find(query).sort({ createdAt: -1 });
+        res.json(quotes);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
 // Orders API
 app.get('/api/orders', async (req, res) => {
+    const { merchantName } = req.query;
     try {
-        const rxs = await Prescription.find().sort({ date: -1 });
-        const combinedOrders = rxs.map(rx => ({
-            id: rx.id,
-            meds: rx.medicineName,
-            qty: 1,
-            status: rx.status,
-            patient: rx.patientName,
-            type: 'Prescription',
-            mongoId: rx._id
+        const query = merchantName ? { merchantName } : {};
+        const orders = await Order.find(query).sort({ date: -1 });
+        const formattedOrders = orders.map(ord => ({
+            id: ord.id,
+            meds: ord.meds,
+            total: ord.total,
+            status: ord.status,
+            patient: ord.patientName,
+            patientId: ord.patientId,
+            type: 'Prescription Order',
+            mongoId: ord._id,
+            date: ord.date
         }));
-        res.json(combinedOrders);
+        res.json(formattedOrders);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+app.patch('/api/orders/:id/fulfill', async (req, res) => {
+    try {
+        const orderId = req.params.id;
+        const order = await Order.findById(orderId);
+        if(!order) return res.status(404).json({ message: 'Order not found' });
+        
+        order.status = 'Completed';
+        await order.save();
+        
+        // Auto deduct stock
+        for (const med of order.meds) {
+            // Find inventory by name and merchant
+            await Inventory.findOneAndUpdate(
+                { name: med.name, merchantName: order.merchantName }, 
+                { $inc: { inventory: -1 } }
+            );
+        }
+        
+        // Notify patient
+        io.emit('patient-order-status', {
+            orderId: order.id,
+            status: 'Completed',
+            patientId: order.patientId
+        });
+        
+        res.json({ message: 'Order fulfilled and stock updated', order });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -394,18 +655,90 @@ io.on('connection', (socket) => {
     socket.on('join-room', (roomId) => {
         socket.join(roomId);
         console.log(`User ${socket.id} joined room ${roomId}`);
+        socket.broadcast.to(roomId).emit('user-joined');
     });
 
+    // --- WebRTC Signaling ---
     socket.on('offer', (data) => {
-        socket.to(data.roomId).emit('offer', data.offer);
+        socket.broadcast.to(data.roomId).emit('offer', data.offer);
     });
 
     socket.on('answer', (data) => {
-        socket.to(data.roomId).emit('answer', data.answer);
+        socket.broadcast.to(data.roomId).emit('answer', data.answer);
     });
 
     socket.on('ice-candidate', (data) => {
-        socket.to(data.roomId).emit('ice-candidate', data.candidate);
+        socket.broadcast.to(data.roomId).emit('ice-candidate', data.candidate);
+    });
+
+    // --- Video Call Chat & Sync ---
+    socket.on('chat-message', (data) => {
+        socket.broadcast.to(data.roomId).emit('chat-message', data);
+    });
+
+    socket.on('end-call', (data) => {
+        socket.broadcast.to(data.roomId).emit('end-call');
+    });
+
+    socket.on('find-merchant', async (data) => {
+        try {
+            // Save to DB
+            const newBroadcast = new Broadcast(data);
+            await newBroadcast.save();
+            
+            // Notify all merchants in the room
+            socket.broadcast.emit('new-merchant-request', newBroadcast);
+            console.log('Merchant alert sent and saved:', data.prescriptionId);
+        } catch(err) {
+            console.error("Error saving broadcast:", err);
+        }
+    });
+
+    socket.on('merchant-response', async (data) => {
+        try {
+            // data: { prescriptionId, merchantName, status, medsAvailable: [{name, price, stock}], patientEmail, patientName, patientId }
+            const newQuote = new Quote(data);
+            await newQuote.save();
+            
+            io.emit('patient-update', newQuote);
+            console.log('Merchant quote sent and saved:', data.prescriptionId);
+        } catch(err) {
+            console.error("Error saving quote:", err);
+        }
+    });
+
+    socket.on('place-order', async (data) => {
+        // data: { prescriptionId, merchantName, meds: [...], total, patientName, patientId }
+        try {
+            const newOrder = new Order({
+                id: `ORD-${Date.now().toString().slice(-4)}`,
+                prescriptionId: data.prescriptionId,
+                merchantName: data.merchantName,
+                patientName: data.patientName,
+                patientId: data.patientId,
+                meds: data.meds,
+                total: data.total,
+                status: 'Pending'
+            });
+            await newOrder.save();
+            
+            // Clean up old broadcasts and quotes for this fulfilled prescription
+            if(data.prescriptionId) {
+                 await Broadcast.deleteMany({ prescriptionId: data.prescriptionId });
+                 await Quote.deleteMany({ prescriptionId: data.prescriptionId });
+            }
+            
+            // Broadcast to the target merchant
+            io.emit('new-order-received', Object.assign(newOrder.toObject(), { targetMerchant: data.merchantName }));
+            console.log('Order saved, broadcasted, and temporary requests cleared:', newOrder.id);
+        } catch(err) {
+            console.error("Error creating order from socket:", err);
+        }
+    });
+
+    socket.on('order-update', (data) => {
+        // data: { orderId, status, patientId }
+        io.emit('patient-order-status', data);
     });
 
     socket.on('disconnect', () => {

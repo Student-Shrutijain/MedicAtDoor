@@ -1,0 +1,7 @@
+[
+  { "name": "Paracetamol 500mg", "category": "General", "price": 50, "symptoms": ["headache", "fever", "pain"] },
+  { "name": "Amoxicillin 250mg", "category": "Antibiotic", "price": 120, "symptoms": ["infection", "throat", "fever"] },
+  { "name": "Cough Syrup (100ml)", "category": "General", "price": 180, "symptoms": ["cough", "cold", "throat"] },
+  { "name": "Vitamin D3 (60k UI)", "category": "Supplement", "price": 250, "symptoms": ["fatigue", "bone"] },
+  { "name": "Antacid Gel", "category": "General", "price": 90, "symptoms": ["stomach", "acidity", "gas"] }
+]

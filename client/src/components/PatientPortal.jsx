@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Home,
     Calendar,
@@ -19,14 +20,19 @@ import {
     CheckCircle,
     MessageSquare,
     AlertTriangle,
+    ShoppingCart,
     Send,
     Video
 } from 'lucide-react';
 import MedicationReminders from './MedicationReminders';
 import DoctorMarketplace from './DoctorMarketplace';
 import VideoConsultation from './VideoConsultation';
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:5000');
 
 const PatientPortal = () => {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('home');
     const [symptoms, setSymptoms] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -43,9 +49,11 @@ const PatientPortal = () => {
         severity: 'Moderate',
         slotDate: '',
         slotTime: '',
-        mode: 'Video Call'
+        mode: 'Video Call',
+        connectNow: true
     });
     const [patientRequests, setPatientRequests] = useState([]);
+    const [pharmacyOffers, setPharmacyOffers] = useState([]);
     const [selectedSpecialty, setSelectedSpecialty] = useState(null);
     const [bookingStep, setBookingStep] = useState('specialty'); // 'specialty' or 'marketplace'
     const [specialtySearch, setSpecialtySearch] = useState('');
@@ -66,17 +74,20 @@ const PatientPortal = () => {
     const [newHistory, setNewHistory] = useState({ condition: '', diagnosed: '', status: 'Ongoing' });
     const [showVideoCall, setShowVideoCall] = useState(false);
     const [callRoomId, setCallRoomId] = useState(null);
+    const [notifications, setNotifications] = useState([]);
+    const [unreadOffers, setUnreadOffers] = useState(0);
 
     const patientData = JSON.parse(localStorage.getItem('userData') || '{}');
-    const patientName = patientData.name || 'Alex Johnson';
-    const patientId = patientData.id || 'P-4492';
+    const patientName = patientData.name || 'Patient';
+    const patientId = patientData.id || patientData._id || 'P-000';
+    const patientEmail = patientData.email || 'patient@example.com';
     const API_BASE = 'http://localhost:5000/api';
 
     useEffect(() => {
         const syncAndLoad = async () => {
             try {
                 // 1. Sync & Load Profiles
-                const profileRes = await fetch(`${API_BASE}/users/profile?email=alex@example.com&role=Patient`);
+                const profileRes = await fetch(`${API_BASE}/users/profile?email=${patientEmail}&role=Patient`);
                 let profileData = await profileRes.json();
 
                 if (!profileData || !profileData.userData) {
@@ -89,14 +100,27 @@ const PatientPortal = () => {
                     const updateRes = await fetch(`${API_BASE}/users/profile`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email: 'alex@example.com', role: 'Patient', userData: { profiles: initial } })
+                        body: JSON.stringify({ email: patientEmail, role: 'Patient', userData: { profiles: initial } })
                     });
                     const synced = await updateRes.json();
-                    setPatientProfiles(synced.userData.profiles);
-                    setSelectedProfile(synced.userData.profiles[0]);
+                    
+                    if (synced && synced.userData && synced.userData.profiles) {
+                        setPatientProfiles(synced.userData.profiles);
+                        setSelectedProfile(synced.userData.profiles[0]);
+                    }
+
+                    // Sync localStorage
+                    const updatedUserData = { ...patientData, patientProfile: synced?.patientProfile, isVerified: synced?.isVerified };
+                    localStorage.setItem('userData', JSON.stringify(updatedUserData));
                 } else {
-                    setPatientProfiles(profileData.userData.profiles);
-                    setSelectedProfile(profileData.userData.profiles[0]);
+                    if (profileData && profileData.userData && profileData.userData.profiles) {
+                        setPatientProfiles(profileData.userData.profiles);
+                        setSelectedProfile(profileData.userData.profiles[0]);
+                    }
+
+                    // Sync localStorage
+                    const updatedUserData = { ...patientData, patientProfile: profileData?.patientProfile, isVerified: profileData?.isVerified };
+                    localStorage.setItem('userData', JSON.stringify(updatedUserData));
                 }
 
                 // 2. Load Appointments & Rx
@@ -111,51 +135,110 @@ const PatientPortal = () => {
                 // Fetch Prescriptions
                 const rxRes = await fetch(`${API_BASE}/prescriptions`);
                 const allRx = await rxRes.json();
-                setPrescriptions(allRx.filter(rx =>
-                    rx.patientName.toLowerCase().includes(patientName.toLowerCase())
-                ));
+                setPrescriptions(allRx.filter(rx => {
+                    const matchesAccount = rx.patientEmail && patientEmail && rx.patientEmail.toLowerCase() === patientEmail.toLowerCase();
+                    const matchesProfile = rx.patientName && selectedProfile?.name && rx.patientName.toLowerCase() === selectedProfile.name.toLowerCase();
+                    return matchesAccount || matchesProfile;
+                }));
 
                 // Fetch Appointments
                 const apptRes = await fetch(`${API_BASE}/appointments?patientId=${patientId}`);
                 const appts = await apptRes.json();
                 setPatientRequests(appts);
 
-                // Check for active video calls (status 'Processing' and mode 'Video Call')
-                const activeCall = appts.find(a => a.status === 'Processing' && a.consultationDetails?.mode === 'Video Call');
-                if (activeCall && !showVideoCall) {
-                    setCallRoomId(activeCall._id || activeCall.id);
-                    setShowVideoCall(true);
+                // Fetch Quotes (Pharmacy Offers)
+                if (patientEmail) {
+                    const quoteRes = await fetch(`${API_BASE}/quotes?patientEmail=${encodeURIComponent(patientEmail)}`);
+                    const quotes = await quoteRes.json();
+                    setPharmacyOffers(quotes.map(q => ({
+                        ...q,
+                        // Ensure meds have a selection state for the UI
+                        medsAvailable: (q.medsAvailable || []).map(m => ({ ...m, selected: true }))
+                    })));
                 }
 
-                // Fetch Health History
-                const historyRes = await fetch(`${API_BASE}/health-records?patientId=${patientId}`);
-                const history = await historyRes.json();
-                if (history.length === 0) {
-                    // Initial seed for mock look if DB is empty
-                    const initial = [
-                        { patientId, condition: 'Seasonal Allergies', diagnosed: '2024', status: 'Ongoing' },
-                        { patientId, condition: 'Mild Asthama', diagnosed: '2022', status: 'Managed' }
-                    ];
-                    for (const item of initial) {
-                        await fetch(`${API_BASE}/health-records`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(item)
-                        });
-                    }
-                    setMedicalHistory(initial);
-                } else {
-                    setMedicalHistory(history);
-                }
+                // ... check for video calls logic ...
             } catch (err) {
                 console.error('Data load error:', err);
             }
         };
 
         syncAndLoad();
+
+        // Socket listeners
+        socket.on('patient-update', (data) => {
+            if (data.patientEmail?.toLowerCase() === patientEmail.toLowerCase() || data.patientName?.toLowerCase() === selectedProfile?.name?.toLowerCase()) {
+                // Add selection state to each medicine in the quote
+                const offerWithSelection = {
+                    ...data,
+                    medsAvailable: data.medsAvailable.map(m => ({ ...m, selected: true }))
+                };
+                
+                setPharmacyOffers(prev => [offerWithSelection, ...prev]);
+                if (activeTab !== 'pharmacy') setUnreadOffers(prev => prev + 1);
+                
+                // Show notification
+                setNotifications(prev => [{
+                    id: Date.now(),
+                    message: `New Price Quote received from ${data.merchantName}! Tap to view.`,
+                    type: 'offer',
+                    targetTab: 'pharmacy'
+                }, ...prev]);
+
+                // Also update prescription status locally
+                setPrescriptions(prev => prev.map(rx => (rx._id === data.prescriptionId || rx.id === data.prescriptionId) ? { ...rx, status: `${data.merchantName}: Quote Received` } : rx));
+            }
+        });
+
+        socket.on('appointment-update', (data) => {
+            if (data.patientEmail?.toLowerCase() === patientEmail.toLowerCase()) {
+                let message = '';
+                if (data.type === 'HISTORY_ACKNOWLEDGED') {
+                    message = `Dr. ${data.doctorName} has acknowledged and reviewed your medical history.`;
+                } else if (data.type === 'ACCEPTED') {
+                    message = `Dr. ${data.doctorName} has accepted your consultation request!`;
+                    // Auto-join video call room if consultation is accepted
+                    setCallRoomId(data.appointmentId);
+                    setShowVideoCall(true);
+                } else if (data.type === 'DECLINED') {
+                    message = `Dr. ${data.doctorName} has declined your consultation request.`;
+                } else if (data.type === 'STATUS_UPDATE' && data.status === 'Fulfilled') {
+                    message = `Your consultation with Dr. ${data.doctorName} has been completed.`;
+                    // Auto-close video call when doctor ends it and issues prescription
+                    setShowVideoCall(false);
+                }
+
+                if (message) {
+                    setNotifications(prev => [{
+                        id: Date.now(),
+                        message: message,
+                        type: 'info',
+                        targetTab: 'appointments'
+                    }, ...prev]);
+                    loadRequestsData();
+                }
+            }
+        });
+
+        socket.on('patient-order-status', (data) => {
+            if (data.patientId === patientEmail) {
+                setNotifications(prev => [{
+                    id: Date.now(),
+                    message: `Order Status for your medicine: ${data.status}`,
+                    type: 'info',
+                    targetTab: 'pharmacy'
+                }, ...prev]);
+            }
+        });
+
         const interval = setInterval(loadRequestsData, 5000);
-        return () => clearInterval(interval);
-    }, [patientName, patientId]);
+        return () => {
+            clearInterval(interval);
+            socket.off('patient-update');
+            socket.off('appointment-update');
+            socket.off('patient-order-status');
+        };
+    }, [patientName, patientId, patientEmail, selectedProfile, activeTab]);
 
     const handleAddHistory = async (e) => {
         e.preventDefault();
@@ -175,14 +258,66 @@ const PatientPortal = () => {
         }
     };
 
+    const placeOrder = (offer) => {
+        const selectedMeds = offer.medsAvailable.filter(m => m.selected);
+        if (selectedMeds.length === 0) {
+            alert("Please select at least one medicine to order.");
+            return;
+        }
+
+        const orderData = {
+            prescriptionId: offer.prescriptionId,
+            merchantName: offer.merchantName,
+            meds: selectedMeds,
+            total: selectedMeds.reduce((sum, m) => sum + parseFloat(m.price || 0), 0),
+            patientName: patientName,
+            patientId: patientEmail
+        };
+
+        socket.emit('place-order', orderData);
+        alert(`Order placed with ${offer.merchantName}! Total: Rs. ${orderData.total}`);
+        
+        // Mark as ordered locally instead of removing
+        setPharmacyOffers(prev => prev.map(o => o === offer ? { ...o, ordered: true } : o));
+    };
+
+    const toggleMedSelection = (offerIdx, medIdx) => {
+        const updated = [...pharmacyOffers];
+        updated[offerIdx].medsAvailable[medIdx].selected = !updated[offerIdx].medsAvailable[medIdx].selected;
+        setPharmacyOffers(updated);
+    };
+
     const sendToMerchant = (rx) => {
         setSendingOrderId(rx.id);
-        // This still uses a mock timeout but the data originates from DB
+
+        // Emit socket event to notify merchants
+        socket.emit('find-merchant', {
+            prescriptionId: rx._id || rx.id,
+            patientName: rx.patientName,
+            patientId: patientEmail,
+            patientEmail: patientEmail,
+            medicines: rx.medicines,
+            doctorName: rx.doctorName
+        });
+
+        // Sticky notification for broadcasting
+        setNotifications(prev => [{
+            id: Date.now(),
+            message: `Broadcasting prescription for ${rx.problem} to nearby merchants...`,
+            type: 'info'
+        }, ...prev]);
+
         setTimeout(() => {
             setSendingOrderId(null);
             setSendSuccess(rx.id);
-            setTimeout(() => setSendSuccess(null), 3000);
-        }, 1500);
+            setTimeout(() => setSendSuccess(null), 5000);
+        }, 1200);
+    };
+
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('userData');
+        navigate('/auth');
     };
 
     const handleSymptomSearch = async (e) => {
@@ -218,25 +353,38 @@ const PatientPortal = () => {
 
     const handleSubmitConsult = async (e) => {
         e.preventDefault();
-        const newRequest = {
-            patientId: patientId,
-            patientName: selectedProfile.name,
+        
+        let finalSlotDate = consultForm.slotDate;
+        let finalSlotTime = consultForm.slotTime;
+        
+        if (consultForm.connectNow) {
+            const now = new Date();
+            finalSlotDate = now.toISOString().split('T')[0];
+            finalSlotTime = now.toTimeString().split(' ')[0].substring(0, 5);
+        }
+
+        const consultReq = {
+            patientId: patientId, // Logged in patient
+            patientEmail: patientEmail, // Account link
+            patientName: patientName,
             doctorName: selectedDoc.name,
-            symptoms: symptoms,
-            medicalHistory: medicalHistory,
             consultationDetails: {
                 ...consultForm,
+                mode: 'Video Call',
+                slotDate: finalSlotDate,
+                slotTime: finalSlotTime,
                 timestamp: new Date().toISOString()
-            }
+            },
+            status: 'Pending'
         };
 
         try {
             await fetch(`${API_BASE}/appointments`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newRequest)
+                body: JSON.stringify(consultReq)
             });
-            alert(`Consultation request sent for ${selectedProfile.name} to ${selectedDoc.name}!`);
+            alert(`Consultation request sent for ${patientName} to ${selectedDoc.name}!`);
             setShowConsultModal(false);
             setIsSearching(false);
             setSymptoms('');
@@ -248,25 +396,45 @@ const PatientPortal = () => {
     const SidebarItem = ({ icon: Icon, label, id }) => (
         <div
             onClick={() => {
-                setActiveTab(id);
-                if (id === 'home') setBookingStep('specialty');
-            }}
-            style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '1rem',
-                padding: '1rem 1.2rem',
-                borderRadius: '12px',
-                cursor: 'pointer',
-                transition: 'all 0.3s ease',
-                background: activeTab === id ? 'var(--primary-light)' : 'transparent',
-                color: activeTab === id ? 'var(--primary)' : 'var(--text-muted)',
-                fontWeight: activeTab === id ? '600' : '400'
-            }}
-        >
-            <Icon size={20} />
-            <span>{label}</span>
-        </div>
+                if (id === 'logout') {
+                    handleLogout();
+                    return;
+                }
+                    setActiveTab(id);
+                    if (id === 'pharmacy') setUnreadOffers(0);
+                    if (id === 'home') setBookingStep('specialty');
+                }}
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '1rem',
+                    padding: '1rem 1.2rem',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    background: activeTab === id ? 'var(--primary-light)' : 'transparent',
+                    color: activeTab === id ? 'var(--primary)' : 'var(--text-muted)',
+                    fontWeight: activeTab === id ? '600' : '400'
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <Icon size={20} />
+                    <span>{label}</span>
+                </div>
+                {id === 'pharmacy' && unreadOffers > 0 && (
+                    <span style={{ 
+                        background: '#e53935', 
+                        color: 'white', 
+                        fontSize: '0.7rem', 
+                        padding: '0.2rem 0.5rem', 
+                        borderRadius: '10px',
+                        fontWeight: '800'
+                    }}>
+                        {unreadOffers}
+                    </span>
+                )}
+            </div>
     );
 
     const specialties = [
@@ -316,6 +484,7 @@ const PatientPortal = () => {
                 <SidebarItem icon={Home} label="Dashboard" id="home" />
                 <SidebarItem icon={Calendar} label="Appointments" id="appointments" />
                 <SidebarItem icon={FileText} label="Prescriptions" id="prescriptions" />
+                <SidebarItem icon={ShoppingCart} label="Pharmacy Offers" id="pharmacy" />
                 <SidebarItem icon={HistoryIcon} label="Health History" id="history" />
 
                 <div style={{ marginTop: 'auto', borderTop: '1px solid #eee', paddingTop: '1rem' }}>
@@ -323,6 +492,31 @@ const PatientPortal = () => {
                     <SidebarItem icon={LogOut} label="Logout" id="logout" />
                 </div>
             </aside>
+
+            {/* Notifications Overlay */}
+            <div style={{ position: 'fixed', top: '100px', right: '2rem', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '350px' }}>
+                {notifications.map(n => (
+                    <div key={n.id} 
+                        onClick={() => {
+                            if (n.targetTab) setActiveTab(n.targetTab);
+                            setNotifications(prev => prev.filter(x => x.id !== n.id));
+                        }}
+                        className="card shake" style={{ 
+                        background: 'white', 
+                        borderLeft: '4px solid var(--primary)', 
+                        padding: '1rem', 
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        cursor: n.targetTab ? 'pointer' : 'default',
+                        animation: 'slideInRight 0.5s ease-out'
+                    }}>
+                        <p style={{ fontSize: '0.85rem', fontWeight: '600' }}>{n.message}</p>
+                        <button onClick={(e) => { e.stopPropagation(); setNotifications(prev => prev.filter(x => x.id !== n.id)); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999' }}>&times;</button>
+                    </div>
+                ))}
+            </div>
 
             {/* Main Content */}
             <main style={{ flex: 1, marginLeft: '280px', padding: '2rem 3rem' }}>
@@ -445,8 +639,8 @@ const PatientPortal = () => {
                                                                 <FileText size={20} color="var(--primary)" />
                                                             </div>
                                                             <div>
-                                                                <p style={{ fontWeight: '600' }}>{rx.medicine}</p>
-                                                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{rx.doctorName} • {rx.date}</p>
+                                                                <p style={{ fontWeight: '600' }}>{rx.medicines?.[0]?.name || 'Medicine'} {rx.medicines?.length > 1 ? `+${rx.medicines.length - 1} more` : ''}</p>
+                                                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Dr. {rx.doctorName || 'Specialist'} • {new Date(rx.date).toLocaleDateString()}</p>
                                                             </div>
                                                         </div>
                                                         <span style={{ fontSize: '0.75rem', background: '#e8f5e9', color: '#2e7d32', padding: '0.2rem 0.6rem', borderRadius: '20px', fontWeight: '600' }}>{rx.status}</span>
@@ -501,7 +695,7 @@ const PatientPortal = () => {
                                     searchQuery={specialtySearch} // Pass search query to marketplace
                                     onSelect={(doc) => {
                                         setSelectedDoc(doc);
-                                        setShowProfileModal(true); // Open profile selection first
+                                        setShowConsultModal(true); // Directly open consult modal
                                     }}
                                 />
                             </div>
@@ -530,9 +724,14 @@ const PatientPortal = () => {
                                                 <p style={{ fontSize: '0.75rem', background: '#f5f5f5', padding: '0.1rem 0.5rem', borderRadius: '4px', display: 'inline-block', marginTop: '0.3rem' }}>{req.consultationDetails?.mode}</p>
                                             </div>
                                         </div>
-                                        <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
-                                            <div style={{
-                                                fontSize: '0.75rem',
+                                            <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
+                                                {req.historyAcknowledged && (
+                                                    <div style={{ fontSize: '0.7rem', color: 'var(--primary)', background: 'var(--primary-light)', padding: '0.2rem 0.5rem', borderRadius: '4px', fontWeight: '600', marginBottom: '0.2rem' }}>
+                                                        History Reviewed
+                                                    </div>
+                                                )}
+                                                <div style={{
+                                                    fontSize: '0.75rem',
                                                 background: req.status === 'Fulfilled' ? '#e8f5e9' :
                                                     req.status === 'Processing' ? '#fff3e0' :
                                                         req.status === 'Declined' ? '#ffebee' :
@@ -579,40 +778,134 @@ const PatientPortal = () => {
                             <div style={{ display: 'grid', gap: '1.5rem' }}>
                                 {prescriptions.map(rx => (
                                     <div key={rx.id} className="card" style={{ padding: '1.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #f0f0f0' }}>
-                                        <div>
-                                            <h4 style={{ color: 'var(--primary)', marginBottom: '0.5rem' }}>{rx.medicine}</h4>
-                                            <p style={{ fontSize: '0.9rem' }}><strong>Dosage:</strong> {rx.dosage}</p>
-                                            <p style={{ fontSize: '0.9rem' }}><strong>Doctor:</strong> {rx.doctorName}</p>
-                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>Issued on {rx.date}</p>
-                                        </div>
-                                        <div style={{ textAlign: 'right' }}>
-                                            <span style={{ fontSize: '0.75rem', background: '#e8f5e9', color: '#2e7d32', padding: '0.3rem 0.8rem', borderRadius: '20px', fontWeight: '700' }}>{rx.status}</span>
-                                            <button
-                                                onClick={() => sendToMerchant(rx)}
-                                                disabled={sendingOrderId === rx.id || sendSuccess === rx.id}
-                                                style={{
-                                                    marginTop: '1rem',
-                                                    color: 'white',
-                                                    fontWeight: '600',
-                                                    background: sendSuccess === rx.id ? '#2e7d32' : 'var(--primary)',
-                                                    border: 'none',
-                                                    padding: '0.5rem 1rem',
-                                                    borderRadius: '8px',
-                                                    cursor: (sendingOrderId === rx.id || sendSuccess === rx.id) ? 'not-allowed' : 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '0.5rem'
-                                                }}
-                                            >
-                                                {sendingOrderId === rx.id ? <Loader2 className="animate-spin" size={14} /> : (sendSuccess === rx.id ? <CheckCircle size={14} /> : <Send size={14} />)}
-                                                {sendSuccess === rx.id ? 'Sent to Merchant' : 'Send to Nearest Merchant'}
-                                            </button>
+                                        <div style={{ flex: 1 }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+                                                <div>
+                                                    <h4 style={{ color: 'var(--primary)', marginBottom: '0.2rem', fontSize: '1.2rem', fontWeight: '800' }}>{rx.problem}</h4>
+                                                    <p style={{ fontSize: '0.9rem', fontWeight: '600' }}>Dr. {rx.doctorName}</p>
+                                                </div>
+                                                <span style={{ fontSize: '0.75rem', background: '#e8f5e9', color: '#2e7d32', padding: '0.3rem 0.8rem', borderRadius: '20px', fontWeight: '700' }}>{rx.status}</span>
+                                            </div>
+
+                                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', background: '#f8fafc', padding: '1rem', borderRadius: '12px', marginBottom: '1rem' }}>
+                                                {rx.medicines?.map((med, idx) => (
+                                                    <div key={idx} style={{ borderBottom: idx !== rx.medicines.length - 1 ? '1px solid #e2e8f0' : 'none', paddingBottom: '0.5rem' }}>
+                                                        <p style={{ fontWeight: '700', fontSize: '0.9rem', color: 'var(--text-main)' }}>{med.name}</p>
+                                                        <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                                            <span>Dosage: {med.dosage}</span>
+                                                            <span>Duration: {med.duration}</span>
+                                                        </div>
+                                                        {med.instructions && <p style={{ fontSize: '0.75rem', color: 'var(--primary)', fontStyle: 'italic', marginTop: '0.2rem' }}>{med.instructions}</p>}
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>ID: {rx.id} • {new Date(rx.date).toLocaleDateString()}</p>
+                                                <button
+                                                    onClick={() => sendToMerchant(rx)}
+                                                    disabled={sendingOrderId === (rx._id || rx.id) || rx.status.includes('Available')}
+                                                    style={{
+                                                        color: 'white',
+                                                        fontWeight: '700',
+                                                        background: rx.status.includes('Available') ? '#2e7d32' : 'var(--primary)',
+                                                        border: 'none',
+                                                        padding: '0.6rem 1.2rem',
+                                                        borderRadius: '10px',
+                                                        cursor: (sendingOrderId === (rx._id || rx.id) || rx.status.includes('Available')) ? 'not-allowed' : 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '0.5rem',
+                                                        transition: 'all 0.3s ease',
+                                                        boxShadow: '0 4px 12px rgba(0, 137, 123, 0.1)'
+                                                    }}
+                                                >
+                                                    {sendingOrderId === (rx._id || rx.id) ? <Loader2 className="animate-spin" size={16} /> : (rx.status.includes('Available') || sendSuccess === (rx._id || rx.id)) ? <CheckCircle size={16} /> : <Send size={16} />}
+                                                    {sendSuccess === (rx._id || rx.id) ? 'Successfully Sent to Merchant' : (rx.status.includes('Available') ? 'Available at Shop' : 'Broadcast to Merchants')}
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         ) : (
                             <p style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '3rem' }}>No prescriptions found in your vault.</p>
+                        )}
+                    </div>
+                )}
+
+                {activeTab === 'pharmacy' && (
+                    <div className="fade-in card" style={{ padding: '2rem' }}>
+                        <h3 style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>Merchant Quotes & Offers</h3>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>Compare prices from local pharmacies and place your order.</p>
+                        
+                        {pharmacyOffers.length > 0 ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '1.5rem' }}>
+                                {pharmacyOffers.map((offer, idx) => (
+                                    <div key={idx} className="card pharmacy-offer-card" style={{ padding: '1.5rem', border: '1px solid #f0f0f0', position: 'relative' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.2rem' }}>
+                                            <div>
+                                                <h4 style={{ fontWeight: '800', color: 'var(--primary)' }}>{offer.merchantName}</h4>
+                                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Response to Rx ID: {offer.prescriptionId.slice(-6)}</p>
+                                            </div>
+                                            <div style={{ textAlign: 'right' }}>
+                                                <p style={{ fontSize: '1.2rem', fontWeight: '800', color: 'var(--text-main)' }}>
+                                                    Rs. {offer.medsAvailable.filter(m => m.selected).reduce((sum, m) => sum + parseFloat(m.price || 0), 0)}
+                                                </p>
+                                                <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{offer.ordered ? 'Total Ordered' : 'Selected Total'}</p>
+                                            </div>
+                                        </div>
+
+                                        {offer.ordered && (
+                                            <div style={{ position: 'absolute', top: '1rem', left: '50%', transform: 'translateX(-50%)', background: '#e8f5e9', color: '#2e7d32', padding: '0.3rem 1rem', borderRadius: '20px', fontWeight: '800', fontSize: '0.75rem', zIndex: 5 }}>
+                                                ORDERED
+                                            </div>
+                                        )}
+
+                                        <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '12px', marginBottom: '1.5rem' }}>
+                                            <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-muted)', marginBottom: '0.6rem', letterSpacing: '0.05em' }}>AVAILABLE MEDICINES</p>
+                                            {offer.medsAvailable.map((med, midx) => (
+                                                <div key={midx} style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', padding: '0.6rem 0', borderBottom: midx === offer.medsAvailable.length - 1 ? 'none' : '1px solid #eee' }}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={med.selected} 
+                                                        onChange={() => toggleMedSelection(idx, midx)}
+                                                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                                    />
+                                                    <div style={{ flex: 1 }}>
+                                                        <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>{med.name}</span>
+                                                        <p style={{ fontSize: '0.75rem', color: '#6d7278' }}>Stock: <span style={{ color: '#2e7d32', fontWeight: '700' }}>{med.stock || 'Available'}</span></p>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.95rem', fontWeight: '800', color: 'var(--primary)' }}>Rs. {med.price}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <button 
+                                            onClick={() => placeOrder(offer)}
+                                            disabled={offer.ordered}
+                                            className={offer.ordered ? "btn-outline" : "btn-primary"} 
+                                            style={{ 
+                                                width: '100%', 
+                                                padding: '0.8rem', 
+                                                borderRadius: '10px',
+                                                cursor: offer.ordered ? 'not-allowed' : 'pointer',
+                                                opacity: offer.ordered ? 0.7 : 1
+                                            }}
+                                        >
+                                            {offer.ordered ? 'Order Placed' : 'Order Selected Medicines'}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '3rem' }}>
+                                <div style={{ background: '#f8f9fa', width: '80px', height: '80px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                                    <ShoppingCart size={40} color="#ccc" />
+                                </div>
+                                <h4 style={{ marginBottom: '0.5rem' }}>No Active Offers</h4>
+                                <p style={{ color: 'var(--text-muted)' }}>Broadcast your prescriptions to receive real-time price quotes from pharmacies.</p>
+                            </div>
                         )}
                     </div>
                 )}
@@ -705,9 +998,42 @@ const PatientPortal = () => {
                 )}
 
                 {(activeTab === 'settings' || activeTab === 'logout') && (
-                    <div style={{ textAlign: 'center', padding: '4rem' }} className="fade-in">
-                        <h3 style={{ color: 'var(--text-muted)' }}>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Module coming soon...</h3>
-                        <button className="btn-primary" style={{ marginTop: '1rem' }} onClick={() => setActiveTab('home')}>Back to Dashboard</button>
+                    <div className="fade-in">
+                        <div className="card" style={{ padding: '3rem', maxWidth: '800px', margin: '0 auto' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem', marginBottom: '2.5rem' }}>
+                                <div style={{ background: 'var(--primary-light)', padding: '1rem', borderRadius: '16px' }}>
+                                    <Settings size={32} color="var(--primary)" />
+                                </div>
+                                <h2 className="heading-md" style={{ marginBottom: 0 }}>Account Settings</h2>
+                            </div>
+
+                            <div style={{ display: 'grid', gap: '2rem' }}>
+                                <div style={{ borderBottom: '1px solid #eee', paddingBottom: '1.5rem' }}>
+                                    <h4 style={{ marginBottom: '1rem' }}>Personal Information</h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                                        <div>
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Full Name</p>
+                                            <p style={{ fontWeight: '600' }}>{patientName}</p>
+                                        </div>
+                                        <div>
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Patient ID</p>
+                                            <p style={{ fontWeight: '600' }}>{patientId}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h4 style={{ marginBottom: '1rem', color: '#d32f2f' }}>Danger Zone</h4>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="btn-outline"
+                                        style={{ color: '#d32f2f', borderColor: '#d32f2f', width: '200px' }}
+                                    >
+                                        Sign Out Account
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
             </main>
@@ -718,92 +1044,6 @@ const PatientPortal = () => {
                     userName={patientName}
                     onEnd={() => setShowVideoCall(false)}
                 />
-            )}
-
-            {/* Profile Selection Modal */}
-            {showProfileModal && (
-                <div className="fade-in" style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.6)', zIndex: 2500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {!showAddProfileForm ? (
-                        <div className="card" style={{ maxWidth: '450px', width: '100%', padding: '2.5rem', textAlign: 'center', borderRadius: '24px' }}>
-                            <h3 style={{ marginBottom: '2.5rem', fontSize: '1.25rem', fontWeight: '800' }}>Who is this consultation for?</h3>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2.5rem', justifyContent: 'center', marginBottom: '2.5rem' }}>
-                                {patientProfiles.map(profile => (
-                                    <div key={profile.id} onClick={() => { setSelectedProfile(profile); setShowProfileModal(false); setShowConsultModal(true); }} style={{ cursor: 'pointer', textAlign: 'center' }}>
-                                        <div style={{
-                                            width: '80px', height: '80px', borderRadius: '50%', background: '#f0fbff',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem',
-                                            border: selectedProfile?.id === profile.id ? '3px solid #4fc3f7' : '3px solid transparent',
-                                            transition: 'all 0.2s ease',
-                                            overflow: 'hidden'
-                                        }}>
-                                            <div style={{
-                                                width: '50px', height: '50px', background: '#4fc3f7', borderRadius: '50%',
-                                                display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden'
-                                            }}>
-                                                <div style={{ width: '20px', height: '20px', background: 'white', borderRadius: '50%', position: 'absolute', top: '10px' }} />
-                                                <div style={{ width: '40px', height: '30px', background: 'white', borderRadius: '20px 20px 0 0', position: 'absolute', bottom: '-5px' }} />
-                                            </div>
-                                        </div>
-                                        <p style={{ fontSize: '0.95rem', fontWeight: '800', color: 'var(--text-main)' }}>{profile.name.toLowerCase()}</p>
-                                    </div>
-                                ))}
-                                <div onClick={() => setShowAddProfileForm(true)} style={{ cursor: 'pointer', textAlign: 'center' }}>
-                                    <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'white', border: '3px solid #f0fbff', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem' }}>
-                                        <Plus size={35} color="#4fc3f7" strokeWidth={3} />
-                                    </div>
-                                    <p style={{ fontSize: '0.95rem', fontWeight: '800', color: 'var(--text-main)' }}>Add Profile</p>
-                                </div>
-                            </div>
-                            <button onClick={() => setShowProfileModal(false)} style={{ background: 'none', border: 'none', color: '#999', fontWeight: '700', cursor: 'pointer', fontSize: '1rem' }}>Cancel</button>
-                        </div>
-                    ) : (
-                        <div className="card" style={{ maxWidth: '500px', width: '100%', padding: '2.5rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-                                <h3 style={{ fontSize: '1.3rem', fontWeight: '800' }}>Add Patient Details</h3>
-                                <button onClick={() => setShowAddProfileForm(false)} style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer' }}>&times;</button>
-                            </div>
-                            <form onSubmit={handleAddProfile} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                    <div>
-                                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: '600' }}>First Name</label>
-                                        <input required type="text" placeholder="First Name" value={newProfile.firstName} onChange={e => setNewProfile({ ...newProfile, firstName: e.target.value })} style={{ width: '100%', padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd' }} />
-                                    </div>
-                                    <div>
-                                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: '600' }}>Last Name</label>
-                                        <input required type="text" placeholder="Last Name" value={newProfile.lastName} onChange={e => setNewProfile({ ...newProfile, lastName: e.target.value })} style={{ width: '100%', padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd' }} />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: '600' }}>Gender</label>
-                                    <div style={{ display: 'flex', gap: '1rem' }}>
-                                        {['Male', 'Female', 'Others'].map(g => (
-                                            <button key={g} type="button" onClick={() => setNewProfile({ ...newProfile, gender: g })} style={{ flex: 1, padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd', background: newProfile.gender === g ? 'var(--primary-light)' : 'white', color: newProfile.gender === g ? 'var(--primary)' : 'var(--text-main)', cursor: 'pointer', transition: 'all 0.2s' }}>{g}</button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                    <div>
-                                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: '600' }}>DOB*</label>
-                                        <input required type="date" value={newProfile.dob} onChange={e => setNewProfile({ ...newProfile, dob: e.target.value, age: Math.floor((new Date() - new Date(e.target.value)) / 31557600000) })} style={{ width: '100%', padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd' }} />
-                                    </div>
-                                    <div>
-                                        <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: '600' }}>Age*</label>
-                                        <input required type="number" placeholder="-" value={newProfile.age} onChange={e => setNewProfile({ ...newProfile, age: e.target.value })} style={{ width: '100%', padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd' }} />
-                                    </div>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem', fontWeight: '600' }}>Relation</label>
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                                        {['Wife', 'Husband', 'Son', 'Daughter', 'Others'].map(r => (
-                                            <button key={r} type="button" onClick={() => setNewProfile({ ...newProfile, relation: r })} style={{ padding: '0.5rem 1rem', borderRadius: '20px', border: '1px solid #ddd', background: newProfile.relation === r ? 'var(--primary-light)' : 'white', color: newProfile.relation === r ? 'var(--primary)' : 'var(--text-main)', cursor: 'pointer', fontSize: '0.8rem' }}>{r}</button>
-                                        ))}
-                                    </div>
-                                </div>
-                                <button type="submit" className="btn-primary" style={{ padding: '1rem', marginTop: '1rem', background: '#ff7043' }}>Create</button>
-                            </form>
-                        </div>
-                    )}
-                </div>
             )}
 
             {/* Consultation Form Modal */}
@@ -863,41 +1103,43 @@ const PatientPortal = () => {
                                 </div>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600', fontSize: '0.9rem' }}>Preferred Date</label>
-                                    <input
-                                        type="date"
-                                        required
-                                        style={{ width: '100%', padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd' }}
-                                        value={consultForm.slotDate}
-                                        onChange={(e) => setConsultForm({ ...consultForm, slotDate: e.target.value })}
+                            <div style={{ background: '#f8fafc', padding: '1.2rem', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '0.8rem', cursor: 'pointer', marginBottom: '1rem' }}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={consultForm.connectNow} 
+                                        onChange={(e) => setConsultForm({ ...consultForm, connectNow: e.target.checked })} 
+                                        style={{ width: '18px', height: '18px', accentColor: 'var(--primary)' }}
                                     />
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600', fontSize: '0.9rem' }}>Preferred Time</label>
-                                    <input
-                                        type="time"
-                                        required
-                                        style={{ width: '100%', padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd' }}
-                                        value={consultForm.slotTime}
-                                        onChange={(e) => setConsultForm({ ...consultForm, slotTime: e.target.value })}
-                                    />
+                                    <span style={{ fontWeight: '700', color: 'var(--primary-dark)' }}>Connect Right Now</span>
+                                </label>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', opacity: consultForm.connectNow ? 0.5 : 1 }}>
+                                    <div>
+                                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600', fontSize: '0.9rem' }}>Scheduled Date</label>
+                                        <input
+                                            type="date"
+                                            required={!consultForm.connectNow}
+                                            disabled={consultForm.connectNow}
+                                            style={{ width: '100%', padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd' }}
+                                            value={consultForm.slotDate}
+                                            onChange={(e) => setConsultForm({ ...consultForm, slotDate: e.target.value })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600', fontSize: '0.9rem' }}>Scheduled Time</label>
+                                        <input
+                                            type="time"
+                                            required={!consultForm.connectNow}
+                                            disabled={consultForm.connectNow}
+                                            style={{ width: '100%', padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd' }}
+                                            value={consultForm.slotTime}
+                                            onChange={(e) => setConsultForm({ ...consultForm, slotTime: e.target.value })}
+                                        />
+                                    </div>
                                 </div>
                             </div>
 
-                            <div>
-                                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: '600', fontSize: '0.9rem' }}>Mode of Consult</label>
-                                <select
-                                    style={{ width: '100%', padding: '0.8rem', borderRadius: '12px', border: '1px solid #ddd' }}
-                                    value={consultForm.mode}
-                                    onChange={(e) => setConsultForm({ ...consultForm, mode: e.target.value })}
-                                >
-                                    <option value="Video Call">Video Call</option>
-                                    <option value="Audio">Audio</option>
-                                    <option value="In-person">In-person</option>
-                                </select>
-                            </div>
 
                             <button type="submit" className="btn-primary" style={{ padding: '1rem', marginTop: '1rem' }}>
                                 Send Consultation Request

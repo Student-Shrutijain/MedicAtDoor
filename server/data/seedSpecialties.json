@@ -1,0 +1,10 @@
+[
+    { "name": "Physician", "icon": "👨‍⚕️" },
+    { "name": "Pediatrician", "icon": "👶" },
+    { "name": "Gynaecologist", "icon": "🤰" },
+    { "name": "Dermatologist", "icon": "✨" },
+    { "name": "Cardiologist", "icon": "❤️" },
+    { "name": "Dietitian", "icon": "🍎" },
+    { "name": "Orthopedician", "icon": "🦴" },
+    { "name": "Surgeon", "icon": "🔪" }
+]

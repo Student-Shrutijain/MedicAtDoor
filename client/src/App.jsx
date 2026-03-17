@@ -12,6 +12,7 @@ import DoctorMarketplace from './components/DoctorMarketplace'
 import Home from './components/Home'
 import Login from './components/Login'
 import ProfessionalRegister from './components/ProfessionalRegister'
+import AboutUs from './components/AboutUs'
 import { useLocation } from 'react-router-dom'
 
 // Protected Route Component
@@ -32,11 +33,26 @@ const ProtectedRoute = ({ children, role }) => {
 
 const Navbar = () => {
     const navigate = useNavigate();
-    const user = JSON.parse(localStorage.getItem('userData'));
+    const [user, setUser] = useState(JSON.parse(localStorage.getItem('userData')));
+
+    useEffect(() => {
+        const handleAuthChange = () => {
+            setUser(JSON.parse(localStorage.getItem('userData')));
+        };
+        window.addEventListener('storage', handleAuthChange);
+        // Custom event for same-tab updates
+        window.addEventListener('auth-change', handleAuthChange);
+        return () => {
+            window.removeEventListener('storage', handleAuthChange);
+            window.removeEventListener('auth-change', handleAuthChange);
+        };
+    }, []);
 
     const handleLogout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('userData');
+        setUser(null);
+        window.dispatchEvent(new Event('auth-change'));
         navigate('/auth');
     };
 
@@ -49,7 +65,7 @@ const Navbar = () => {
                 </Link>
                 <div style={{ display: 'flex', gap: '2.5rem', alignItems: 'center' }}>
                     <Link to="/" className="nav-link">Home</Link>
-                    <Link to="/doctors" className="nav-link">Find Doctors</Link>
+                    <Link to="/about" className="nav-link">About Us</Link>
                     <Link to="/guidelines" className="nav-link">Guidelines</Link>
                 </div>
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -105,6 +121,7 @@ function App() {
                 <Route path="/guidelines" element={<Guidelines />} />
                 <Route path="/login/admin" element={<AdminLogin />} />
                 <Route path="/doctors" element={<DoctorMarketplacePage />} />
+                <Route path="/about" element={<AboutUs />} />
 
                 {/* Protected Portals */}
                 <Route path="/patient-portal" element={

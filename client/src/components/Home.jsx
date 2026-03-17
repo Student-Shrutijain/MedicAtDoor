@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Users,
@@ -25,68 +25,40 @@ const Home = () => {
     const [activeHeroTab, setActiveHeroTab] = useState('symptoms');
     const [showSymptomModal, setShowSymptomModal] = useState(false);
     const [symptomSearch, setSymptomSearch] = useState('');
+    const [selectedSymptoms, setSelectedSymptoms] = useState([]);
+    
+    // Dynamic data state
+    const [symptoms, setSymptoms] = useState([]);
+    const [specialties, setSpecialties] = useState([]);
+    const [allSymptomsCategorized, setAllSymptomsCategorized] = useState({});
 
-    const symptoms = [
-        { name: 'Stomach Ache', icon: '胃' },
-        { name: 'Period Issue', icon: '♀' },
-        { name: 'Acne / Pimples', icon: '👤' },
-        { name: 'Fever', icon: '🌡️' },
-        { name: 'Depression', icon: '🧠' },
-        { name: 'Diabetes', icon: '💉' },
-        { name: 'Cough', icon: '🗣️' },
-        { name: 'Hairfall', icon: '💇' },
-        { name: 'Gastritis', icon: '🔥' },
-        { name: 'Body Pain', icon: '💪' }
-    ];
+    useEffect(() => {
+        fetchData();
+    }, []);
 
-    const specialties = [
-        { name: 'Physician', icon: '👨‍⚕️' },
-        { name: 'Pediatrician', icon: '👶' },
-        { name: 'Gynaecologist', icon: '🤰' },
-        { name: 'Dermatologist', icon: '✨' },
-        { name: 'Cardiologist', icon: '❤️' },
-        { name: 'Dietitian', icon: '🍎' },
-        { name: 'Orthopedician', icon: '🦴' },
-        { name: 'Surgeon', icon: '🔪' }
-    ];
+    const fetchData = async () => {
+        try {
+            const [sympRes, specRes] = await Promise.all([
+                fetch('http://localhost:5000/api/symptoms'),
+                fetch('http://localhost:5000/api/specialties')
+            ]);
+            
+            const sympData = await sympRes.json();
+            const specData = await specRes.json();
 
-    const allSymptomsCategorized = {
-        "Most Selected Issues": [
-            { name: "Fever", icon: "🌡️", specialty: "Physician" },
-            { name: "Acne", icon: "👤", specialty: "Dermatologist" },
-            { name: "Runny nose", icon: "🤧", specialty: "Physician" },
-            { name: "Cough", icon: "🗣️", specialty: "Physician" },
-            { name: "Headache", icon: "🧠", specialty: "Physician" },
-            { name: "Hairfall", icon: "💇", specialty: "Dermatologist" },
-            { name: "Vomiting/Nausea", icon: "🤢", specialty: "Physician" },
-            { name: "Dry Skin", icon: "🧴", specialty: "Dermatologist" },
-            { name: "Obesity", icon: "⚖️", specialty: "Dietitian" },
-            { name: "Abdominal pain", icon: "胃", specialty: "Physician" },
-            { name: "Constipation", icon: "💩", specialty: "Physician" },
-            { name: "Rashes", icon: "🩹", specialty: "Dermatologist" },
-            { name: "Throat pain", icon: "🧣", specialty: "Physician" },
-            { name: "Back Pain", icon: "💪", specialty: "Orthopedician" },
-            { name: "Gas", icon: "💨", specialty: "Physician" },
-            { name: "Period Issues", icon: "♀", specialty: "Gynaecologist" },
-            { name: "Chest Pain", icon: "❤️", specialty: "Cardiologist" }
-        ],
-        "Women's health": [
-            { name: "Period related issue", icon: "♀", specialty: "Gynaecologist" },
-            { name: "Pregnancy related issue", icon: "🤰", specialty: "Gynaecologist" },
-            { name: "Breast Scan", icon: "🎗️", specialty: "Gynaecologist" },
-            { name: "Excessive bleeding", icon: "🩸", specialty: "Gynaecologist" },
-            { name: "Thyroid Problems", icon: "🦋", specialty: "Physician" }
-        ],
-        "Skin & Hair Issues": [
-            { name: "Pimples/Acne", icon: "👤", specialty: "Dermatologist" },
-            { name: "Reddish Skin", icon: "🍎", specialty: "Dermatologist" },
-            { name: "Rashes", icon: "🧼", specialty: "Dermatologist" },
-            { name: "Spots on skin", icon: "🧿", specialty: "Dermatologist" },
-            { name: "Itching", icon: "🤏", specialty: "Dermatologist" },
-            { name: "Dark circles", icon: "🐼", specialty: "Dermatologist" },
-            { name: "Hairfall", icon: "💇", specialty: "Dermatologist" },
-            { name: "Dry scalp/Dandruff", icon: "❄️", specialty: "Dermatologist" }
-        ]
+            setSymptoms(sympData.filter(s => s.category === 'Most Selected Issues'));
+            setSpecialties(specData);
+
+            // Group symptoms by category
+            const categorized = sympData.reduce((acc, curr) => {
+                if (!acc[curr.category]) acc[curr.category] = [];
+                acc[curr.category].push(curr);
+                return acc;
+            }, {});
+            setAllSymptomsCategorized(categorized);
+        } catch (error) {
+            console.error("Error fetching data:", error);
+        }
     };
 
     const handleSelectSpecialty = (spec) => {
@@ -95,14 +67,29 @@ const Home = () => {
     };
 
     const handleSelectSymptom = (symbolName) => {
-        // Find mapped specialty for the symptom
-        let mappedSpec = "Physician"; // Default
-        Object.values(allSymptomsCategorized).forEach(category => {
-            const sym = category.find(s => s.name === symbolName);
-            if (sym) mappedSpec = sym.specialty;
+        setSelectedSymptoms(prev => {
+            if (prev.includes(symbolName)) {
+                return prev.filter(s => s !== symbolName);
+            }
+            return [...prev, symbolName];
+        });
+    };
+
+    const handleConsultNow = () => {
+        if (selectedSymptoms.length === 0) {
+            alert("Please select at least one symptom.");
+            return;
+        }
+
+        // Map first selected symptom to specialty (industry standard for initial triage)
+        const primarySymptomName = selectedSymptoms[0];
+        let mappedSpec = "Physician";
+
+        Object.values(allSymptomsCategorized).flat().forEach(sym => {
+            if (sym.name === primarySymptomName) mappedSpec = sym.specialty;
         });
 
-        // For some common quick symptoms not in categorized but in hero grid
+        // Hero mapping overrides
         const heroMapping = {
             "Diabetes": "Physician",
             "Depression": "Psychiatrist",
@@ -111,9 +98,9 @@ const Home = () => {
             "Acne / Pimples": "Dermatologist",
             "Stomach Ache": "Physician"
         };
-        if (heroMapping[symbolName]) mappedSpec = heroMapping[symbolName];
+        if (heroMapping[primarySymptomName]) mappedSpec = heroMapping[primarySymptomName];
 
-        navigate('/doctors', { state: { specialty: mappedSpec } });
+        navigate('/doctors', { state: { specialty: mappedSpec, selectedSymptoms } });
     };
 
     return (
@@ -188,35 +175,51 @@ const Home = () => {
                     {/* Grid Preview */}
                     <div style={{ marginTop: '4rem' }}>
                         <div className="grid-responsive" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                            {(activeHeroTab === 'symptoms' ? symptoms : specialties).map((item, idx) => (
-                                <div
-                                    key={idx}
-                                    onClick={() => activeHeroTab === 'symptoms' ? handleSelectSymptom(item.name) : handleSelectSpecialty(item.name)}
-                                    className="card card-hover"
-                                    style={{
-                                        padding: '1.5rem',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    <span style={{ fontWeight: '700', fontSize: '1rem' }}>{item.name}</span>
-                                    <div style={{
-                                        width: '48px',
-                                        height: '48px',
-                                        background: 'var(--primary-light)',
-                                        borderRadius: '12px',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        fontSize: '1.4rem'
-                                    }}>
-                                        {item.icon}
+                            {(activeHeroTab === 'symptoms' ? symptoms : specialties).map((item, idx) => {
+                                const isSelected = activeHeroTab === 'symptoms' && selectedSymptoms.includes(item.name);
+                                return (
+                                    <div
+                                        key={idx}
+                                        onClick={() => activeHeroTab === 'symptoms' ? handleSelectSymptom(item.name) : handleSelectSpecialty(item.name)}
+                                        className={`card card-hover ${isSelected ? 'selected-symptom' : ''}`}
+                                        style={{
+                                            padding: '1.5rem',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            cursor: 'pointer',
+                                            border: isSelected ? '2px solid var(--primary)' : '1px solid transparent',
+                                            background: isSelected ? 'var(--primary-light)' : ''
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                                            {isSelected && <CheckCircle size={16} color="var(--primary)" />}
+                                            <span style={{ fontWeight: '700', fontSize: '1rem' }}>{item.name}</span>
+                                        </div>
+                                        <div style={{
+                                            width: '48px',
+                                            height: '48px',
+                                            background: isSelected ? 'var(--white)' : 'var(--primary-light)',
+                                            borderRadius: '12px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            fontSize: '1.4rem'
+                                        }}>
+                                            {item.icon}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
+
+                        {activeHeroTab === 'symptoms' && selectedSymptoms.length > 0 && (
+                            <div className="animate-fade-up" style={{ display: 'flex', justifyContent: 'center', marginTop: '2rem' }}>
+                                <button className="btn-primary" style={{ padding: '1rem 3rem', borderRadius: '16px', boxShadow: '0 10px 20px rgba(0, 137, 123, 0.2)' }} onClick={handleConsultNow}>
+                                    Consult Now for {selectedSymptoms.length} Symptoms <ArrowRight size={20} />
+                                </button>
+                            </div>
+                        )}
 
                         <div style={{ display: 'flex', justifyContent: 'center', marginTop: '3rem' }}>
                             <button
@@ -280,28 +283,28 @@ const Home = () => {
                         <div>
                             <h4 className="heading-md" style={{ color: 'var(--white)', fontSize: '1.2rem', borderBottom: '2px solid var(--primary)', paddingBottom: '0.5rem', display: 'inline-block' }}>For Patients</h4>
                             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.9rem', color: '#b0bec5', marginTop: '1.5rem' }}>
-                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/doctors')}>Search Doctors</li>
-                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/register/patient')}>Health Vault</li>
-                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/register/merchant')}>Order Medicines</li>
-                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/guidelines')}>SOS Emergency</li>
-                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/guidelines')}>Symptom Checker</li>
+                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/doctors')}>Search Top Doctors</li>
+                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate(localStorage.getItem('token') ? '/patient-portal' : '/auth')}>Patient Health Vault</li>
+                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate(localStorage.getItem('token') ? '/merchant-portal' : '/auth')}>Order Medicines</li>
+                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/guidelines')}>SOS Emergency Guidelines</li>
+                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/about')}>About MedicAtDoor</li>
                             </ul>
                         </div>
                         <div>
                             <h4 className="heading-md" style={{ color: 'var(--white)', fontSize: '1.2rem', borderBottom: '2px solid var(--primary)', paddingBottom: '0.5rem', display: 'inline-block' }}>Governance</h4>
                             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.9rem', color: '#b0bec5', marginTop: '1.5rem' }}>
-                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/guidelines')}>Telemedicine Guidelines</li>
-                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => alert('Privacy Policy: Your data is encrypted.')}>Privacy Policy</li>
-                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => alert('Terms of Service.')}>Terms of Service</li>
-                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5' }} onClick={() => navigate('/login/admin')}>Grievance Portal</li>
+                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5', transition: 'color 0.3s ease' }} onClick={() => navigate('/guidelines')}>Telemedicine Guidelines</li>
+                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5', transition: 'color 0.3s ease' }} onClick={() => navigate('/guidelines')}>Data Privacy & Policy</li>
+                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5', transition: 'color 0.3s ease' }} onClick={() => navigate('/guidelines')}>Terms of Service</li>
+                                <li className="nav-link" style={{ cursor: 'pointer', color: '#b0bec5', transition: 'color 0.3s ease' }} onClick={() => navigate('/login/admin')}>Grievance Redressal</li>
                             </ul>
                         </div>
                         <div>
                             <h4 className="heading-md" style={{ color: 'var(--white)', fontSize: '1.2rem', borderBottom: '2px solid var(--primary)', paddingBottom: '0.5rem', display: 'inline-block' }}>Contact Support</h4>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem', color: '#b0bec5', fontSize: '0.9rem', marginTop: '1.5rem' }}>
-                                <div style={{ display: 'flex', gap: '0.8rem', cursor: 'pointer' }} onClick={() => window.location.href = 'tel:18004442222'}><Phone size={18} color="var(--primary)" /> <span>1800-444-2222 (Toll Free)</span></div>
-                                <div style={{ display: 'flex', gap: '0.8rem', cursor: 'pointer' }} onClick={() => window.location.href = 'mailto:help@medicatdoor.gov.in'}><Mail size={18} color="var(--primary)" /> <span>help@medicatdoor.gov.in</span></div>
-                                <div style={{ display: 'flex', gap: '0.8rem', cursor: 'pointer' }} onClick={() => window.open('https://www.google.com/maps?q=Ministry+of+Health+New+Delhi', '_blank')}><MapPin size={18} color="var(--primary)" /> <span>Digital Cell, New Delhi</span></div>
+                                <div className="nav-link" style={{ display: 'flex', gap: '0.8rem', cursor: 'pointer', color: '#b0bec5' }} onClick={() => window.location.href = 'tel:18004442222'}><Phone size={18} color="var(--primary)" /> <span>1800-444-2222 (Toll Free)</span></div>
+                                <div className="nav-link" style={{ display: 'flex', gap: '0.8rem', cursor: 'pointer', color: '#b0bec5' }} onClick={() => window.location.href = 'mailto:help@medicatdoor.gov.in'}><Mail size={18} color="var(--primary)" /> <span>help@medicatdoor.gov.in</span></div>
+                                <div className="nav-link" style={{ display: 'flex', gap: '0.8rem', cursor: 'pointer', color: '#b0bec5' }} onClick={() => window.open('https://www.google.com/maps?q=Ministry+of+Health+New+Delhi', '_blank')}><MapPin size={18} color="var(--primary)" /> <span>Digital Cell, New Delhi</span></div>
                             </div>
                         </div>
                     </div>
@@ -347,19 +350,32 @@ const Home = () => {
                                             <div style={{ flex: 1, height: '1px', background: 'var(--primary)', opacity: 0.15 }} />
                                         </div>
                                         <div className="grid-responsive" style={{ gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                                            {items.filter(i => i.name.toLowerCase().includes(symptomSearch.toLowerCase())).map((item, idx) => (
-                                                <div
-                                                    key={idx}
-                                                    onClick={() => handleSelectSymptom(item.name)}
-                                                    className="card-hover"
-                                                    style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1rem', background: 'var(--primary-light)', borderRadius: '16px', cursor: 'pointer' }}
-                                                >
-                                                    <div style={{ width: '32px', height: '32px', background: 'white', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
-                                                        {item.icon}
+                                            {items.filter(i => i.name.toLowerCase().includes(symptomSearch.toLowerCase())).map((item, idx) => {
+                                                const isSelected = selectedSymptoms.includes(item.name);
+                                                return (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => handleSelectSymptom(item.name)}
+                                                        className="card-hover"
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '1rem',
+                                                            padding: '1rem',
+                                                            background: isSelected ? 'var(--primary)' : 'var(--primary-light)',
+                                                            color: isSelected ? 'white' : 'inherit',
+                                                            borderRadius: '16px',
+                                                            cursor: 'pointer',
+                                                            transition: 'all 0.2s'
+                                                        }}
+                                                    >
+                                                        <div style={{ width: '32px', height: '32px', background: 'white', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
+                                                            {isSelected ? <CheckCircle size={16} color="var(--primary)" /> : item.icon}
+                                                        </div>
+                                                        <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>{item.name}</span>
                                                     </div>
-                                                    <span style={{ fontSize: '0.9rem', fontWeight: '600' }}>{item.name}</span>
-                                                </div>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 ))

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Home,
     Users,
@@ -24,12 +25,15 @@ import {
 import VideoConsultation from './VideoConsultation';
 
 const DoctorPortal = () => {
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('home');
     const [loading, setLoading] = useState(false);
     const [rxForm, setRxForm] = useState({
         patientId: '',
+        patientEmail: '',
+        patientName: '',
         problem: '', // Group by problem
-        medicines: [{ name: '', dosage: '', instructions: '' }] // Multiple medicines
+        medicines: [{ name: '', dosage: '', duration: '', instructions: '' }] // Multiple medicines
     });
     const [submitted, setSubmitted] = useState(false);
     const [pastPrescriptions, setPastPrescriptions] = useState([]);
@@ -40,6 +44,8 @@ const DoctorPortal = () => {
     const [historyReviews, setHistoryReviews] = useState({}); // {patientId: true/false}
     const [showHistoryForm, setShowHistoryForm] = useState(false);
     const [selectedHistoryPatient, setSelectedHistoryPatient] = useState(null);
+    const [selectedPatientHistory, setSelectedPatientHistory] = useState([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
     const [showVideoCall, setShowVideoCall] = useState(false);
     const [callRoomId, setCallRoomId] = useState(null);
 
@@ -47,9 +53,10 @@ const DoctorPortal = () => {
     const doctorData = JSON.parse(localStorage.getItem('userData') || '{}');
     const doctorName = doctorData.name || 'Doctor';
     const doctorEmail = doctorData.email || 'doctor@example.com';
+    const doctorSpecialization = doctorData.specialization || (doctorData.doctorProfile?.specialization) || 'General Physician';
+    const doctorExp = doctorData.experience || (doctorData.doctorProfile?.experience) || '1';
+    const doctorDegree = doctorData.degree || (doctorData.doctorProfile?.degree) || 'MBBS';
     const doctorProf = doctorData.doctorProfile || {};
-    const doctorSpecialization = doctorProf.specialization || 'General Surgeon';
-    const doctorExp = doctorProf.experience || '10+';
     const API_BASE = 'http://localhost:5000/api';
 
     useEffect(() => {
@@ -68,8 +75,20 @@ const DoctorPortal = () => {
                 // Load Profile & Reviews (Dynamic Email)
                 const profileRes = await fetch(`${API_BASE}/users/profile?email=${doctorEmail}&role=Doctor`);
                 const profileData = await profileRes.json();
-                if (profileData && profileData.userData) {
-                    setHistoryReviews(profileData.userData.historyReviews || {});
+                if (profileData) {
+                    if (profileData.userData) {
+                        setHistoryReviews(profileData.userData.historyReviews || {});
+                    }
+                    // Sync localStorage
+                    const updatedUserData = {
+                        ...doctorData,
+                        doctorProfile: profileData.doctorProfile,
+                        isVerified: profileData.isVerified,
+                        specialization: profileData.doctorProfile?.specialization || doctorData.specialization,
+                        experience: profileData.doctorProfile?.experience || doctorData.experience,
+                        degree: profileData.doctorProfile?.degree || doctorData.degree
+                    };
+                    localStorage.setItem('userData', JSON.stringify(updatedUserData));
                 }
             } catch (err) {
                 console.error('Doctor load error:', err);
@@ -80,6 +99,23 @@ const DoctorPortal = () => {
         const interval = setInterval(loadDoctorDashboard, 5000);
         return () => clearInterval(interval);
     }, [doctorName]);
+
+    useEffect(() => {
+        const fetchPatientHistory = async () => {
+            if (!selectedHistoryPatient) return;
+            setHistoryLoading(true);
+            try {
+                const res = await fetch(`${API_BASE}/health-records?patientId=${selectedHistoryPatient.id}`);
+                const data = await res.json();
+                setSelectedPatientHistory(data);
+            } catch (err) {
+                console.error("Error fetching patient history:", err);
+            } finally {
+                setHistoryLoading(false);
+            }
+        };
+        fetchPatientHistory();
+    }, [selectedHistoryPatient]);
 
     const acceptRequest = async (req) => {
         setCurrentSession(req);
@@ -95,15 +131,21 @@ const DoctorPortal = () => {
 
             // Add to consulted patients (Simplified as session-based here)
             if (!acceptedPatients.some(p => p.patientName === req.patientName)) {
-                setAcceptedPatients(prev => [...prev, { patientName: req.patientName, patientId: req.patientId, date: new Date().toLocaleDateString() }]);
+                setAcceptedPatients(prev => [...prev, { patientName: req.patientName, patientId: req.patientId, patientEmail: req.patientEmail, date: new Date().toLocaleDateString() }]);
             }
 
-            setRxForm(prev => ({ ...prev, patientId: req.patientName }));
+            setRxForm(prev => ({
+                ...prev,
+                patientId: req.patientId, // Store clinical ID
+                patientEmail: req.patientEmail || req.patientId, // Account mapping
+                patientName: req.patientName // Store display name
+            }));
 
             // Start Video Call if mode is Video
             if (req.consultationDetails?.mode === 'Video Call') {
                 setCallRoomId(req._id || req.id);
                 setShowVideoCall(true);
+                setShowRxModal(true); // Automatically open prescription form
             }
 
             alert(`Consultation started with ${req.patientName}.`);
@@ -113,17 +155,32 @@ const DoctorPortal = () => {
     };
 
     const toggleHistoryAcknowledge = async (pId) => {
-        const updated = { ...historyReviews, [pId]: !historyReviews[pId] };
-        setHistoryReviews(updated);
+        const activeAppt = patientRequests.find(r => r.patientId === pId && r.status !== 'Declined' && r.status !== 'Fulfilled');
+        if (!activeAppt) {
+            alert("No active appointment found for this patient to acknowledge.");
+            return;
+        }
 
+        const isCurrentlyAcknowledged = activeAppt.historyAcknowledged;
+        
         try {
-            await fetch(`${API_BASE}/users/profile`, {
-                method: 'POST',
+            const res = await fetch(`${API_BASE}/appointments/${activeAppt._id || activeAppt.id}`, {
+                method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: doctorEmail, role: 'Doctor', userData: { historyReviews: updated } })
+                body: JSON.stringify({ 
+                    historyAcknowledged: !isCurrentlyAcknowledged
+                })
             });
+            
+            if (res.ok) {
+                setPatientRequests(prev => prev.map(r => 
+                    (r._id === activeAppt._id || r.id === activeAppt.id) 
+                    ? { ...r, historyAcknowledged: !isCurrentlyAcknowledged } 
+                    : r
+                ));
+            }
         } catch (err) {
-            console.error('Failed to save review status');
+            console.error('Failed to save review status', err);
         }
     };
 
@@ -145,32 +202,44 @@ const DoctorPortal = () => {
         return pastPrescriptions.some(rx => rx.patientName === pName);
     };
 
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('userData');
+        navigate('/auth');
+    };
+
     const handleRxSubmit = async (e) => {
         e.preventDefault();
-        if (!rxForm.patientId || rxForm.medicines.length === 0) return;
+        if (!rxForm.patientId || rxForm.medicines.some(m => !m.name || !m.dosage)) {
+            alert("Please fill all medicine details.");
+            return;
+        }
 
         setLoading(true);
-        // We link multiple medicines to one health problem in the DB
-        // For simplicity in this mock-to-real transition, we'll store it as a single entry with concatenated text or an array if the backend supports it.
-        // Let's assume we want to store it professionally.
 
         try {
-            for (const med of rxForm.medicines) {
-                const newRx = {
-                    doctorId: doctorName,
-                    patientName: rxForm.patientId,
-                    medicineName: med.name,
-                    dosage: med.dosage,
-                    instructions: `${rxForm.problem}: ${med.instructions}`,
-                    problem: rxForm.problem
-                };
+            const newRx = {
+                doctorId: doctorEmail,
+                doctorName: doctorName,
+                patientId: rxForm.patientId,
+                patientEmail: rxForm.patientEmail, // Account link
+                patientName: rxForm.patientName,
+                problem: rxForm.problem,
+                medicines: rxForm.medicines.map(m => ({
+                    name: m.name,
+                    dosage: m.dosage,
+                    duration: m.duration || "5 days",
+                    instructions: m.instructions
+                }))
+            };
 
-                await fetch(`${API_BASE}/prescriptions`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(newRx)
-                });
-            }
+            const response = await fetch(`${API_BASE}/prescriptions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newRx)
+            });
+
+            if (!response.ok) throw new Error('Failed to issue prescription');
 
             if (currentSession) {
                 await fetch(`${API_BASE}/appointments/${currentSession._id || currentSession.id}`, {
@@ -182,10 +251,15 @@ const DoctorPortal = () => {
             }
 
             setSubmitted(true);
-            setRxForm({ patientId: '', problem: '', medicines: [{ name: '', dosage: '', instructions: '' }] });
+            setRxForm({ patientId: '', patientEmail: '', patientName: '', problem: '', medicines: [{ name: '', dosage: '', duration: '', instructions: '' }] });
             setTimeout(() => setSubmitted(false), 3000);
+
+            // Re-fetch prescriptions to update UI
+            const rxRes = await fetch(`${API_BASE}/prescriptions`);
+            const allRx = await rxRes.json();
+            setPastPrescriptions(allRx.filter(rx => rx.doctorName === doctorName || rx.doctorId === doctorEmail));
         } catch (err) {
-            alert('Failed to issue prescription');
+            alert('Error issuing prescription: ' + err.message);
         } finally {
             setLoading(false);
         }
@@ -193,7 +267,13 @@ const DoctorPortal = () => {
 
     const SidebarItem = ({ icon: Icon, label, id }) => (
         <div
-            onClick={() => setActiveTab(id)}
+            onClick={() => {
+                if (id === 'logout') {
+                    handleLogout();
+                    return;
+                }
+                setActiveTab(id);
+            }}
             style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -268,7 +348,12 @@ const DoctorPortal = () => {
                                 <div
                                     key={idx}
                                     onClick={() => {
-                                        setRxForm(prev => ({ ...prev, patientId: p.patientName }));
+                                        setRxForm(prev => ({
+                                            ...prev,
+                                            patientId: p.patientId,
+                                            patientEmail: p.patientEmail || p.patientId,
+                                            patientName: p.patientName
+                                        }));
                                         setShowRxModal(true);
                                     }}
                                     style={{
@@ -353,22 +438,48 @@ const DoctorPortal = () => {
                             </div>
                         </section>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 350px', gap: '2rem' }}>
                             <div className="card" style={{ padding: '2rem' }}>
-                                <h3 style={{ fontSize: '1.2rem', marginBottom: '1rem' }}>Recent Prescriptions</h3>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+                                    <h3 style={{ fontSize: '1.2rem' }}>Recent Prescriptions</h3>
+                                    <button onClick={() => setActiveTab('history')} style={{ color: 'var(--primary)', background: 'none', border: 'none', fontWeight: '600', cursor: 'pointer' }}>View All</button>
+                                </div>
                                 {pastPrescriptions.length > 0 ? (
-                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                        <tbody>
-                                            {pastPrescriptions.slice(0, 3).map(rx => (
-                                                <tr key={rx.id} style={{ borderBottom: '1px solid #eee' }}>
-                                                    <td style={{ padding: '0.8rem', fontWeight: '600' }}>{rx.patientName}</td>
-                                                    <td style={{ padding: '0.8rem' }}>{rx.medicine}</td>
-                                                    <td style={{ padding: '0.8rem', color: 'var(--text-muted)' }}>{rx.date}</td>
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                                            <thead>
+                                                <tr style={{ borderBottom: '2px solid #f0f0f0' }}>
+                                                    <th style={{ padding: '1rem' }}>Patient</th>
+                                                    <th style={{ padding: '1rem' }}>Diagnosis</th>
+                                                    <th style={{ padding: '1rem' }}>Medicines</th>
+                                                    <th style={{ padding: '1rem' }}>Date</th>
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                ) : <p>No prescriptions issued.</p>}
+                                            </thead>
+                                            <tbody>
+                                                {pastPrescriptions.slice(0, 5).map(rx => (
+                                                    <tr key={rx._id || rx.id} style={{ borderBottom: '1px solid #eee' }}>
+                                                        <td style={{ padding: '1rem', fontWeight: '600' }}>{rx.patientName}</td>
+                                                        <td style={{ padding: '1rem' }}><span style={{ padding: '0.2rem 0.6rem', background: 'var(--primary-light)', color: 'var(--primary)', borderRadius: '4px', fontSize: '0.8rem' }}>{rx.problem}</span></td>
+                                                        <td style={{ padding: '1rem', fontSize: '0.85rem' }}>{rx.medicines?.length || 0} items</td>
+                                                        <td style={{ padding: '1rem', color: 'var(--text-muted)', fontSize: '0.8rem' }}>{new Date(rx.date).toLocaleDateString()}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : <div style={{ textAlign: 'center', padding: '2rem', color: '#ccc' }}>No prescriptions issued yet.</div>}
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                                <div className="card" style={{ padding: '1.5rem', background: 'var(--primary)', color: 'white' }}>
+                                    <p style={{ fontSize: '0.9rem', opacity: 0.8 }}>Total Consultations</p>
+                                    <h2 style={{ fontSize: '2.5rem' }}>{pastPrescriptions.length}</h2>
+                                    <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Till date</p>
+                                </div>
+                                <div className="card" style={{ padding: '1.5rem' }}>
+                                    <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Pending Requests</p>
+                                    <h2 style={{ fontSize: '2.5rem' }}>{patientRequests.filter(r => r.status === 'Pending').length}</h2>
+                                    <button onClick={() => setActiveTab('requests')} style={{ width: '100%', marginTop: '1rem', padding: '0.6rem', borderRadius: '8px', border: '1px solid #eee', background: 'var(--bg-color)', cursor: 'pointer' }}>Manage Requests</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -484,27 +595,31 @@ const DoctorPortal = () => {
                                                 <h3 style={{ fontSize: '1.5rem' }}>{selectedHistoryPatient.name}'s Health History</h3>
                                                 <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>ID: {selectedHistoryPatient.id}</p>
                                             </div>
-                                            <button
-                                                onClick={() => toggleHistoryAcknowledge(selectedHistoryPatient.id)}
-                                                style={{
-                                                    padding: '0.6rem 1.2rem',
-                                                    borderRadius: '10px',
-                                                    border: '1px solid var(--primary)',
-                                                    background: historyReviews[selectedHistoryPatient.id] ? 'var(--primary)' : 'white',
-                                                    color: historyReviews[selectedHistoryPatient.id] ? 'white' : 'var(--primary)',
-                                                    fontWeight: '700',
-                                                    cursor: 'pointer',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    gap: '0.5rem'
-                                                }}
-                                            >
-                                                {historyReviews[selectedHistoryPatient.id] ? <><CheckCircle size={18} /> Understood</> : 'Acknowledge & Mark Understood'}
-                                            </button>
-                                        </div>
+                                                <button
+                                                    onClick={() => toggleHistoryAcknowledge(selectedHistoryPatient.id)}
+                                                    style={{
+                                                        padding: '0.6rem 1.2rem',
+                                                        borderRadius: '10px',
+                                                        border: '1px solid var(--primary)',
+                                                        background: (patientRequests.find(r => r.patientId === selectedHistoryPatient.id && r.status !== 'Declined' && r.status !== 'Fulfilled')?.historyAcknowledged) ? 'var(--primary)' : 'white',
+                                                        color: (patientRequests.find(r => r.patientId === selectedHistoryPatient.id && r.status !== 'Declined' && r.status !== 'Fulfilled')?.historyAcknowledged) ? 'white' : 'var(--primary)',
+                                                        fontWeight: '700',
+                                                        cursor: 'pointer',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '0.5rem'
+                                                    }}
+                                                >
+                                                    {(patientRequests.find(r => r.patientId === selectedHistoryPatient.id && r.status !== 'Declined' && r.status !== 'Fulfilled')?.historyAcknowledged) ? <><CheckCircle size={18} /> Understood</> : 'Acknowledge & Mark Understood'}
+                                                </button>
+                                            </div>
 
                                         <div style={{ display: 'grid', gap: '1rem' }}>
-                                            {(patientRequests.find(r => r.patientId === selectedHistoryPatient.id)?.medicalHistory || []).map((h, i) => (
+                                            {historyLoading ? (
+                                                <div style={{ textAlign: 'center', padding: '2rem' }}>
+                                                    <Loader2 className="animate-spin" size={24} />
+                                                </div>
+                                            ) : selectedPatientHistory.length > 0 ? selectedPatientHistory.map((h, i) => (
                                                 <div key={i} style={{ padding: '1.2rem', borderRadius: '12px', background: '#fafafa', border: '1px solid #eee' }}>
                                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
                                                         <h4 style={{ fontWeight: '700' }}>{h.condition}</h4>
@@ -512,8 +627,7 @@ const DoctorPortal = () => {
                                                     </div>
                                                     <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>Diagnosed in {h.diagnosed}</p>
                                                 </div>
-                                            ))}
-                                            {(!patientRequests.find(r => r.patientId === selectedHistoryPatient.id)?.medicalHistory) && (
+                                            )) : (
                                                 <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>No medical history profile provided yet.</p>
                                             )}
                                         </div>
@@ -531,15 +645,106 @@ const DoctorPortal = () => {
 
                 {activeTab === 'history' && (
                     <div className="fade-in card" style={{ padding: '2rem' }}>
-                        <h3 style={{ fontSize: '1.5rem', marginBottom: '1.5rem' }}>Prescription History</h3>
-                        {pastPrescriptions.map(rx => (
-                            <div key={rx.id} style={{ padding: '1rem', borderBottom: '1px solid #eee' }}>
-                                <p><strong>{rx.patientName}</strong> - {rx.medicine}</p>
-                                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{rx.date}</p>
-                            </div>
-                        ))}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+                            <h3 style={{ fontSize: '1.5rem' }}>Full Prescription History</h3>
+                            <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>{pastPrescriptions.length} Records found</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+                            {Object.entries(pastPrescriptions.reduce((acc, rx) => {
+                                const date = new Date(rx.date).toLocaleDateString();
+                                if (!acc[date]) acc[date] = [];
+                                acc[date].push(rx);
+                                return acc;
+                            }, {})).sort((a, b) => new Date(b[0]) - new Date(a[0])).map(([date, rxs]) => (
+                                <div key={date}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+                                        <div style={{ height: '1px', flex: 1, background: '#eee' }}></div>
+                                        <span style={{ fontSize: '0.85rem', fontWeight: '700', color: 'var(--text-muted)', background: '#f8fafc', padding: '0.2rem 0.8rem', borderRadius: '20px', border: '1px solid #eee' }}>{date}</span>
+                                        <div style={{ height: '1px', flex: 1, background: '#eee' }}></div>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                                        {rxs.map(rx => (
+                                            <div key={rx._id || rx.id} style={{ padding: '1.5rem', borderRadius: '16px', border: '1px solid #f0f0f0', background: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                                                    <div>
+                                                        <h4 style={{ fontSize: '1.1rem', fontWeight: '700' }}>{rx.patientName}</h4>
+                                                        <p style={{ color: 'var(--primary)', fontWeight: '600', fontSize: '0.9rem' }}>{rx.problem}</p>
+                                                    </div>
+                                                    <div style={{ textAlign: 'right' }}>
+                                                        <p style={{ fontSize: '0.75rem', color: '#999' }}>ID: {rx.id}</p>
+                                                    </div>
+                                                </div>
+                                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', background: '#f8fafc', padding: '1rem', borderRadius: '12px' }}>
+                                                    {rx.medicines?.map((med, idx) => (
+                                                        <div key={idx} style={{ borderBottom: idx !== rx.medicines.length - 1 ? '1px solid #eee' : 'none', paddingBottom: '0.5rem', marginBottom: '0.5rem' }}>
+                                                            <p style={{ fontWeight: '700', fontSize: '0.9rem' }}>{med.name}</p>
+                                                            <p style={{ fontSize: '0.8rem', color: '#555' }}>Dosage: {med.dosage} | Duration: {med.duration}</p>
+                                                            {med.instructions && <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>Note: {med.instructions}</p>}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                            {pastPrescriptions.length === 0 && <div style={{ textAlign: 'center', padding: '5rem 0' }}>No records found.</div>}
+                        </div>
                     </div>
                 )}
+
+                {activeTab === 'settings' && (
+                    <div className="fade-in">
+                        <div className="card" style={{ padding: '3rem', maxWidth: '800px', margin: '0 auto' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '1.2rem', marginBottom: '2.5rem' }}>
+                                <div style={{ background: 'var(--primary-light)', padding: '1rem', borderRadius: '16px' }}>
+                                    <Settings size={32} color="var(--primary)" />
+                                </div>
+                                <h2 className="heading-md" style={{ marginBottom: 0 }}>Practice Settings</h2>
+                            </div>
+
+                            <div style={{ display: 'grid', gap: '2rem' }}>
+                                <div style={{ borderBottom: '1px solid #eee', paddingBottom: '1.5rem' }}>
+                                    <h4 style={{ marginBottom: '1rem' }}>Professional Profile</h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+                                        <div>
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Name</p>
+                                            <p style={{ fontWeight: '600' }}>{doctorName}</p>
+                                        </div>
+                                        <div>
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Degree</p>
+                                            <p style={{ fontWeight: '600' }}>{doctorDegree}</p>
+                                        </div>
+                                        <div>
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Specialization</p>
+                                            <p style={{ fontWeight: '600' }}>{doctorSpecialization}</p>
+                                        </div>
+                                        <div>
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Experience</p>
+                                            <p style={{ fontWeight: '600' }}>{doctorExp} Years</p>
+                                        </div>
+                                        <div>
+                                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Email</p>
+                                            <p style={{ fontWeight: '600' }}>{doctorEmail}</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h4 style={{ marginBottom: '1rem', color: '#d32f2f' }}>Account Action</h4>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="btn-outline"
+                                        style={{ color: '#d32f2f', borderColor: '#d32f2f', width: '200px' }}
+                                    >
+                                        Logout Practice
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {activeTab === 'logout' && <div style={{ padding: '2rem', textAlign: 'center' }}>Logging out...</div>}
 
                 {activeTab === 'profile' && (
                     <div className="fade-in card" style={{ padding: '3rem', borderRadius: '24px' }}>
@@ -554,7 +759,7 @@ const DoctorPortal = () => {
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
                                     <div>
                                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>DEGREE</p>
-                                        <p style={{ fontWeight: '700' }}>{doctorProf.degree || 'Not Provided'}</p>
+                                        <p style={{ fontWeight: '700' }}>{doctorDegree}</p>
                                     </div>
                                     <div>
                                         <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.3rem' }}>EXPERIENCE</p>
@@ -584,7 +789,27 @@ const DoctorPortal = () => {
                 <VideoConsultation
                     roomId={callRoomId}
                     userName={doctorName}
-                    onEnd={() => setShowVideoCall(false)}
+                    onEnd={async () => {
+                        setShowVideoCall(false);
+                        // Mark appointment as fulfilled when call ends
+                        if (callRoomId) {
+                            try {
+                                await fetch(`${API_BASE}/appointments/${callRoomId}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ status: 'Fulfilled' })
+                                });
+                                // Update local state for UI immediately
+                                setPatientRequests(prev => prev.map(r => (r._id === callRoomId || r.id === callRoomId) ? { ...r, status: 'Fulfilled' } : r));
+                            } catch (e) {
+                                console.error("Error fulfilling appointment after call", e);
+                            }
+                        }
+                    }}
+                    initialNotes={rxForm.problem}
+                    onNotesChange={(notes) => setRxForm(prev => ({ ...prev, problem: notes }))}
+                    showNotepad={true}
+                    autoStart={true}
                 />
             )}
 
@@ -619,22 +844,34 @@ const DoctorPortal = () => {
                         </div>
 
                         <form onSubmit={(e) => { handleRxSubmit(e); setShowRxModal(false); }} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
-                            <div>
-                                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem' }}>Patient Name</label>
-                                <input
-                                    placeholder="Patient ID or Name"
-                                    required
-                                    style={{ width: '100%', padding: '0.8rem', borderRadius: '10px', border: '1px solid #ddd', outline: 'none' }}
-                                    value={rxForm.patientId}
-                                    onChange={e => setRxForm({ ...rxForm, patientId: e.target.value })}
-                                />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem' }}>Patient Name</label>
+                                    <input
+                                        placeholder="Patient Name"
+                                        required
+                                        style={{ width: '100%', padding: '0.8rem', borderRadius: '10px', border: '1px solid #ddd', outline: 'none' }}
+                                        value={rxForm.patientName}
+                                        onChange={e => setRxForm({ ...rxForm, patientName: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem' }}>Patient ID / Email</label>
+                                    <input
+                                        placeholder="Patient ID or Email"
+                                        required
+                                        style={{ width: '100%', padding: '0.8rem', borderRadius: '10px', border: '1px solid #ddd', outline: 'none' }}
+                                        value={rxForm.patientId}
+                                        onChange={e => setRxForm({ ...rxForm, patientId: e.target.value })}
+                                    />
+                                </div>
                             </div>
                             <div>
                                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '600', marginBottom: '0.4rem' }}>Health Problem / Diagnosis</label>
-                                <input
-                                    placeholder="e.g. Severe Fever, Joint Pain"
+                                <textarea
+                                    placeholder="e.g. Severe Fever, Joint Pain..."
                                     required
-                                    style={{ width: '100%', padding: '0.8rem', borderRadius: '10px', border: '1px solid #ddd', outline: 'none' }}
+                                    style={{ width: '100%', padding: '0.8rem', borderRadius: '10px', border: '1px solid #ddd', outline: 'none', minHeight: '80px', resize: 'vertical' }}
                                     value={rxForm.problem}
                                     onChange={e => setRxForm({ ...rxForm, problem: e.target.value })}
                                 />
@@ -643,7 +880,7 @@ const DoctorPortal = () => {
                             <div style={{ borderTop: '1px solid #eee', marginTop: '0.5rem', paddingTop: '1rem' }}>
                                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: '700', marginBottom: '1rem', color: 'var(--primary)' }}>Medicines for this problem</label>
                                 {rxForm.medicines.map((med, idx) => (
-                                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 2fr', gap: '0.8rem', marginBottom: '1rem' }}>
+                                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 2fr', gap: '0.8rem', marginBottom: '1rem' }}>
                                         <input
                                             placeholder="Medicine Name"
                                             value={med.name}
@@ -661,6 +898,16 @@ const DoctorPortal = () => {
                                             onChange={e => {
                                                 const newMeds = [...rxForm.medicines];
                                                 newMeds[idx].dosage = e.target.value;
+                                                setRxForm({ ...rxForm, medicines: newMeds });
+                                            }}
+                                        />
+                                        <input
+                                            placeholder="Days"
+                                            value={med.duration}
+                                            style={{ padding: '0.6rem', borderRadius: '8px', border: '1px solid #eee', fontSize: '0.85rem' }}
+                                            onChange={e => {
+                                                const newMeds = [...rxForm.medicines];
+                                                newMeds[idx].duration = e.target.value;
                                                 setRxForm({ ...rxForm, medicines: newMeds });
                                             }}
                                         />
