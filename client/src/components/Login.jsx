@@ -30,7 +30,14 @@ const Login = () => {
                 body: JSON.stringify(formData)
             });
 
-            const data = await res.json();
+            // Safely parse response — handle HTML error pages (e.g. Render cold start)
+            const text = await res.text();
+            let data;
+            try {
+                data = JSON.parse(text);
+            } catch {
+                throw new Error('Server error — the backend may be starting up. Please try again in 30 seconds.');
+            }
 
             if (!res.ok) {
                 throw new Error(data.message || 'Authentication failed');
