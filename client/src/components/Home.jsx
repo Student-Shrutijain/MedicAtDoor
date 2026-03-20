@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import AITriageBot from './AITriageBot';
 import SOSButton from './SOSButton';
+import { API_BASE } from '../config';
 
 const Home = () => {
     const navigate = useNavigate();
@@ -39,8 +40,8 @@ const Home = () => {
     const fetchData = async () => {
         try {
             const [sympRes, specRes] = await Promise.all([
-                fetch('http://localhost:5000/api/symptoms'),
-                fetch('http://localhost:5000/api/specialties')
+                fetch(`${API_BASE}/symptoms`),
+                fetch(`${API_BASE}/specialties`)
             ]);
             
             const sympData = await sympRes.json();

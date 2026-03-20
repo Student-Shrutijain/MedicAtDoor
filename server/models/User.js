@@ -33,6 +33,7 @@ const userSchema = new mongoose.Schema({
     phoneNumber: String,
     otp: String, // For OTP sign-in/verification
     isVerified: { type: Boolean, default: false },
+    isBanned: { type: Boolean, default: false }, // For Admin banning
     createdAt: { type: Date, default: Date.now }
 });
 

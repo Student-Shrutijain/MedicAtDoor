@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Package, ShoppingCart, TrendingUp, AlertCircle, Check, ArrowRight, Loader2, Bell, Send, Home, ClipboardList, LogOut, Plus, Search, Activity } from 'lucide-react';
 import { io } from 'socket.io-client';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE, SOCKET_URL } from '../config';
 
-const socket = io('http://localhost:5000');
+const socket = io(SOCKET_URL);
 
 const MerchantPortal = () => {
     const navigate = useNavigate();
@@ -21,7 +22,6 @@ const MerchantPortal = () => {
     // Add Stock Form State
     const [newStock, setNewStock] = useState({ name: '', category: 'General', price: '', inventory: '' });
 
-    const API_BASE = 'http://localhost:5000/api';
     const merchantData = JSON.parse(localStorage.getItem('userData') || '{}');
     const businessName = merchantData.businessName || merchantData.name || 'Local Pharmacy';
 
@@ -269,7 +269,8 @@ const MerchantPortal = () => {
     );
 
     const pendingOrdersCount = orders.filter(o => o.status === 'Pending').length;
-    const lowStockItems = inventory.filter(i => i.stock < 50);
+    const completedOrdersCount = orders.filter(o => o.status === 'Completed').length;
+    const totalMedicineSold = orders.filter(o => o.status === 'Completed').reduce((acc, order) => acc + (order.meds ? order.meds.length : 0), 0);
 
     if (loading) return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg-color)' }}>
@@ -346,20 +347,29 @@ const MerchantPortal = () => {
                             </div>
                             <div className="card glass" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'white' }}>
                                 <div style={{ background: '#e3f2fd', padding: '1rem', borderRadius: '14px', color: '#1e88e5' }}>
+                                    <Check size={24} />
+                                </div>
+                                <div>
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: '600' }}>Orders Completed</p>
+                                    <h3 style={{ fontSize: '1.8rem', fontWeight: '800' }}>{completedOrdersCount}</h3>
+                                </div>
+                            </div>
+                            <div className="card glass" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'white' }}>
+                                <div style={{ background: '#e8f5e9', padding: '1rem', borderRadius: '14px', color: '#2e7d32' }}>
+                                    <TrendingUp size={24} />
+                                </div>
+                                <div>
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: '600' }}>Medicines Sold</p>
+                                    <h3 style={{ fontSize: '1.8rem', fontWeight: '800' }}>{totalMedicineSold}</h3>
+                                </div>
+                            </div>
+                            <div className="card glass" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'white' }}>
+                                <div style={{ background: '#f3e5f5', padding: '1rem', borderRadius: '14px', color: '#8e24aa' }}>
                                     <Package size={24} />
                                 </div>
                                 <div>
                                     <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: '600' }}>Total Inventory Items</p>
                                     <h3 style={{ fontSize: '1.8rem', fontWeight: '800' }}>{inventory.length}</h3>
-                                </div>
-                            </div>
-                            <div className="card glass" style={{ padding: '1.5rem', display: 'flex', alignItems: 'center', gap: '1rem', background: 'white' }}>
-                                <div style={{ background: '#fff3e0', padding: '1rem', borderRadius: '14px', color: '#f57c00' }}>
-                                    <AlertCircle size={24} />
-                                </div>
-                                <div>
-                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: '600' }}>Low Stock Items</p>
-                                    <h3 style={{ fontSize: '1.8rem', fontWeight: '800' }}>{lowStockItems.length}</h3>
                                 </div>
                             </div>
                         </div>

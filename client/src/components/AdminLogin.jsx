@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldAlert, User, Lock, ArrowRight } from 'lucide-react';
+import { API_BASE } from '../config';
 
 const AdminLogin = () => {
     const navigate = useNavigate();
@@ -9,12 +10,29 @@ const AdminLogin = () => {
         password: ''
     });
 
-    const handleLogin = (e) => {
+    const handleLogin = async (e) => {
         e.preventDefault();
-        console.log("Admin Logged In:", form);
-        localStorage.setItem('userType', 'admin');
-        navigate('/');
-        alert("Admin Login Successful!");
+        try {
+            const res = await fetch(`${API_BASE}/admin/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username: form.username, password: form.password })
+            });
+            const data = await res.json();
+            
+            if (res.ok) {
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('userData', JSON.stringify(data));
+                window.dispatchEvent(new Event('auth-change'));
+                navigate('/admin-portal');
+                alert("Admin Login Successful!");
+            } else {
+                alert(data.message || 'Login failed');
+            }
+        } catch (error) {
+            console.error('Login error', error);
+            alert('Server error during login');
+        }
     };
 
     return (

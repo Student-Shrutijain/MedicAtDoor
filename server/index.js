@@ -22,6 +22,8 @@ import Appointment from './models/Appointment.js';
 import HealthRecord from './models/HealthRecord.js';
 import Symptom from './models/Symptom.js';
 import Specialty from './models/Specialty.js';
+import Grievance from './models/Grievance.js';
+import Admin from './models/Admin.js';
 
 // Middleware
 import { protect, authorize } from './middleware/auth.js';
@@ -201,6 +203,16 @@ const seedDatabase = async () => {
                     console.log(`Seeded user: ${u.email}`);
                 }
             }
+        }
+
+        const adminCount = await Admin.countDocuments();
+        if (adminCount === 0) {
+            const admin = new Admin({
+                username: 'admin@medicatdoor.com',
+                password: 'admin'
+            });
+            await admin.save();
+            console.log('Default admin seeded.');
         }
 
         const doctorCount = await Doctor.countDocuments();
@@ -744,6 +756,131 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         console.log('User disconnected from signaling');
     });
+});
+
+// --- ADMIN API ---
+
+// Admin Login
+app.post('/api/admin/login', async (req, res) => {
+    const { username, password } = req.body;
+    try {
+        const admin = await Admin.findOne({ username });
+        if (admin && (await admin.comparePassword(password))) {
+            res.json({
+                _id: admin._id,
+                name: 'System Admin',
+                email: admin.username,
+                role: 'Admin',
+                token: generateToken(admin._id)
+            });
+        } else {
+            res.status(401).json({ message: 'Invalid admin credentials' });
+        }
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// Admin Stats
+app.get('/api/admin/stats', async (req, res) => {
+    try {
+        // Today range
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+
+        const totalPatients = (await Appointment.distinct('patientId')).length;
+        const activeDoctors = await User.countDocuments({ role: 'Doctor', isVerified: true, 'doctorProfile.status': 'Live' });
+        const pendingMerchants = await User.countDocuments({ role: 'Merchant', isVerified: false });
+        // Assuming revenue is total of completed orders or sum of appointment fees
+        const todayOrders = await Order.find({ date: { $gte: startOfDay }, status: 'Completed' });
+        const todayRevenue = todayOrders.reduce((acc, order) => acc + (order.total || 0), 0);
+        
+        const totalAppointmentsCount = await Appointment.countDocuments();
+
+        res.json({
+            totalPatients,
+            activeDoctors,
+            pendingMerchants,
+            todayRevenue,
+            totalAppointmentsCount
+        });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Admin Users Query (Get Doctors or Merchants)
+app.get('/api/admin/users', async (req, res) => {
+    try {
+        const { role, isVerified } = req.query;
+        let query = {};
+        if (role) query.role = role;
+        if (isVerified !== undefined) query.isVerified = isVerified === 'true';
+
+        const users = await User.find(query).select('-password').sort({ createdAt: -1 });
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Admin User Verification/Ban Handlers
+app.patch('/api/admin/users/:id/verify', async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if(!user) return res.status(404).json({ message: 'User not found' });
+        
+        user.isVerified = true;
+        user.isBanned = false; // Unban if being verified
+        await user.save();
+        res.json({ message: 'User verified', user });
+    } catch(err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+app.patch('/api/admin/users/:id/ban', async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if(!user) return res.status(404).json({ message: 'User not found' });
+        
+        user.isBanned = true;
+        user.isVerified = false; // Banning invalidates verification
+        if(user.role === 'Doctor' && user.doctorProfile) user.doctorProfile.status = 'Away';
+        await user.save();
+        res.json({ message: 'User banned', user });
+    } catch(err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Admin Grievances
+app.get('/api/admin/grievances', async (req, res) => {
+    try {
+        const grievances = await Grievance.find().sort({ createdAt: -1 });
+        res.json(grievances);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+app.patch('/api/admin/grievances/:id/resolve', async (req, res) => {
+    try {
+        const grievance = await Grievance.findByIdAndUpdate(req.params.id, { status: 'Resolved' }, { new: true });
+        res.json(grievance);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+app.post('/api/grievances', async (req, res) => {
+    try {
+        const newGrievance = new Grievance(req.body);
+        await newGrievance.save();
+        res.status(201).json(newGrievance);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
 });
 
 // Error Handling Middleware

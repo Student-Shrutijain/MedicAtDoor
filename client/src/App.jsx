@@ -8,6 +8,7 @@ import DoctorPortal from './components/DoctorPortal'
 import MerchantPortal from './components/MerchantPortal'
 import Guidelines from './components/Guidelines'
 import AdminLogin from './components/AdminLogin'
+import AdminDashboard from './components/AdminDashboard'
 import DoctorMarketplace from './components/DoctorMarketplace'
 import Home from './components/Home'
 import Login from './components/Login'
@@ -71,21 +72,30 @@ const Navbar = () => {
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
                     {user ? (
                         <>
-                            <Link
-                                to={user.role.toLowerCase() === 'patient' ? '/patient-portal' : user.role.toLowerCase() === 'doctor' ? '/doctor-portal' : '/merchant-portal'}
-                                className="nav-link"
-                                style={{ fontWeight: '700', color: 'var(--primary)' }}
-                            >
-                                Dashboard
-                            </Link>
+                            {user.role?.toLowerCase() !== 'admin' && (
+                                <Link
+                                    to={user.role?.toLowerCase() === 'patient' ? '/patient-portal' : user.role?.toLowerCase() === 'doctor' ? '/doctor-portal' : '/merchant-portal'}
+                                    className="nav-link"
+                                    style={{ fontWeight: '700', color: 'var(--primary)' }}
+                                >
+                                    Dashboard
+                                </Link>
+                            )}
                             <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', fontWeight: '600' }}>
                                 <LogOut size={18} /> Logout
                             </button>
                         </>
                     ) : (
-                        <>
-                            <Link to="/auth" className="btn-primary" style={{ padding: '0.6rem 1.2rem', fontSize: '0.9rem' }}>Sign In</Link>
-                        </>
+                        <div style={{ display: 'flex', gap: '1rem' }}>
+                            <Link to="/login/admin" className="btn-outline" style={{ padding: '0.6rem 1.2rem', fontSize: '0.9rem', borderRadius: '12px' }}>
+                                <ShieldAlert size={16} style={{ marginRight: '0.4rem', display: 'inline' }} /> Admin Login
+                            </Link>
+                            <div className="dropdown" style={{ position: 'relative' }}>
+                                <Link to="/auth" className="btn-primary" style={{ padding: '0.6rem 1.2rem', fontSize: '0.9rem', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                                    <User size={16} /> User Login
+                                </Link>
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
@@ -137,6 +147,11 @@ function App() {
                 <Route path="/merchant-portal" element={
                     <ProtectedRoute role="Merchant">
                         <MerchantPortal />
+                    </ProtectedRoute>
+                } />
+                <Route path="/admin-portal" element={
+                    <ProtectedRoute role="Admin">
+                        <AdminDashboard />
                     </ProtectedRoute>
                 } />
 

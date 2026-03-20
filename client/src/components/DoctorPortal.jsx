@@ -23,6 +23,7 @@ import {
     Video
 } from 'lucide-react';
 import VideoConsultation from './VideoConsultation';
+import { API_BASE } from '../config';
 
 const DoctorPortal = () => {
     const navigate = useNavigate();
@@ -57,7 +58,6 @@ const DoctorPortal = () => {
     const doctorExp = doctorData.experience || (doctorData.doctorProfile?.experience) || '1';
     const doctorDegree = doctorData.degree || (doctorData.doctorProfile?.degree) || 'MBBS';
     const doctorProf = doctorData.doctorProfile || {};
-    const API_BASE = 'http://localhost:5000/api';
 
     useEffect(() => {
         const loadDoctorDashboard = async () => {
@@ -789,6 +789,7 @@ const DoctorPortal = () => {
                 <VideoConsultation
                     roomId={callRoomId}
                     userName={doctorName}
+                    autoStart={true}
                     onEnd={async () => {
                         setShowVideoCall(false);
                         // Mark appointment as fulfilled when call ends
@@ -809,7 +810,6 @@ const DoctorPortal = () => {
                     initialNotes={rxForm.problem}
                     onNotesChange={(notes) => setRxForm(prev => ({ ...prev, problem: notes }))}
                     showNotepad={true}
-                    autoStart={true}
                 />
             )}
 

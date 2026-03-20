@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
+import { SOCKET_URL } from '../config';
 import {
     Video, VideoOff, Mic, MicOff, PhoneOff,
     Maximize, Minimize, Settings, MessageSquare, Shield, ClipboardList
 } from 'lucide-react';
 
-const socket = io('http://localhost:5000');
+const socket = io(SOCKET_URL);
 
 const VideoConsultation = ({ roomId, userName, onEnd, onNotesChange, initialNotes = '', showNotepad = false, autoStart = false }) => {
     const [localStream, setLocalStream] = useState(null);

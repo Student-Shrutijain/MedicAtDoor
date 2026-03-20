@@ -28,8 +28,9 @@ import MedicationReminders from './MedicationReminders';
 import DoctorMarketplace from './DoctorMarketplace';
 import VideoConsultation from './VideoConsultation';
 import { io } from 'socket.io-client';
+import { API_BASE, SOCKET_URL } from '../config';
 
-const socket = io('http://localhost:5000');
+const socket = io(SOCKET_URL);
 
 const PatientPortal = () => {
     const navigate = useNavigate();
@@ -76,12 +77,12 @@ const PatientPortal = () => {
     const [callRoomId, setCallRoomId] = useState(null);
     const [notifications, setNotifications] = useState([]);
     const [unreadOffers, setUnreadOffers] = useState(0);
+    const [showBookingSuccess, setShowBookingSuccess] = useState(false);
 
     const patientData = JSON.parse(localStorage.getItem('userData') || '{}');
     const patientName = patientData.name || 'Patient';
     const patientId = patientData.id || patientData._id || 'P-000';
     const patientEmail = patientData.email || 'patient@example.com';
-    const API_BASE = 'http://localhost:5000/api';
 
     useEffect(() => {
         const syncAndLoad = async () => {
@@ -384,10 +385,15 @@ const PatientPortal = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(consultReq)
             });
-            alert(`Consultation request sent for ${patientName} to ${selectedDoc.name}!`);
+            setShowBookingSuccess(true);
             setShowConsultModal(false);
             setIsSearching(false);
             setSymptoms('');
+            // Auto close after 3s
+            setTimeout(() => {
+                setShowBookingSuccess(false);
+                if(activeTab !== 'appointments') setActiveTab('appointments');
+            }, 3000);
         } catch (err) {
             alert('Failed to send consultation request');
         }
@@ -1042,6 +1048,7 @@ const PatientPortal = () => {
                 <VideoConsultation
                     roomId={callRoomId}
                     userName={patientName}
+                    autoStart={true}
                     onEnd={() => setShowVideoCall(false)}
                 />
             )}
@@ -1145,6 +1152,24 @@ const PatientPortal = () => {
                                 Send Consultation Request
                             </button>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* Booking Success Modal */}
+            {showBookingSuccess && (
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.5)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div className="card scale-up" style={{ background: 'white', padding: '3rem', borderRadius: '24px', textAlign: 'center', maxWidth: '400px' }}>
+                        <div style={{ width: '80px', height: '80px', background: '#e8f5e9', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+                            <CheckCircle size={40} color="#2e7d32" />
+                        </div>
+                        <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'var(--text-main)' }}>Appointment Booked!</h2>
+                        <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
+                            Your consultation request has been sent successfully. You can track its status in the Appointments tab.
+                        </p>
+                        <button className="btn-primary" style={{ width: '100%', padding: '1rem', borderRadius: '12px' }} onClick={() => { setShowBookingSuccess(false); setActiveTab('appointments'); }}>
+                            View Appointments
+                        </button>
                     </div>
                 </div>
             )}
