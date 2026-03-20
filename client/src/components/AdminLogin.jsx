@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldAlert, User, Lock, ArrowRight } from 'lucide-react';
 import { API_BASE } from '../config';
+import { safeJson } from '../utils';
 
 const AdminLogin = () => {
     const navigate = useNavigate();
@@ -18,7 +19,7 @@ const AdminLogin = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username: form.username, password: form.password })
             });
-            const data = await res.json();
+            const data = await safeJson(res);
             
             if (res.ok) {
                 localStorage.setItem('token', data.token);

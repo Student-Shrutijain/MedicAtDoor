@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import VideoConsultation from './VideoConsultation';
 import { API_BASE } from '../config';
+import { safeJson } from '../utils';
 
 const DoctorPortal = () => {
     const navigate = useNavigate();
@@ -106,7 +107,7 @@ const DoctorPortal = () => {
             setHistoryLoading(true);
             try {
                 const res = await fetch(`${API_BASE}/health-records?patientId=${selectedHistoryPatient.id}`);
-                const data = await res.json();
+                const data = await safeJson(res);
                 setSelectedPatientHistory(data);
             } catch (err) {
                 console.error("Error fetching patient history:", err);

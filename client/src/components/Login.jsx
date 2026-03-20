@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User, Mail, Lock, ArrowRight, ShieldCheck, Stethoscope, Store, UserPlus, LogIn, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE } from '../config';
+import { safeJson } from '../utils';
 
 const Login = () => {
     const [isLogin, setIsLogin] = useState(true);
@@ -31,13 +32,7 @@ const Login = () => {
             });
 
             // Safely parse response — handle HTML error pages (e.g. Render cold start)
-            const text = await res.text();
-            let data;
-            try {
-                data = JSON.parse(text);
-            } catch {
-                throw new Error('Server error — the backend may be starting up. Please try again in 30 seconds.');
-            }
+            const data = await safeJson(res);
 
             if (!res.ok) {
                 throw new Error(data.message || 'Authentication failed');

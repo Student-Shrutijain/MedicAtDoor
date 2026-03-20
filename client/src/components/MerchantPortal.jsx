@@ -3,6 +3,7 @@ import { Package, ShoppingCart, TrendingUp, AlertCircle, Check, ArrowRight, Load
 import { io } from 'socket.io-client';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE, SOCKET_URL } from '../config';
+import { safeJson } from '../utils';
 
 const socket = io(SOCKET_URL);
 
@@ -88,7 +89,7 @@ const MerchantPortal = () => {
     const fetchBroadcasts = async () => {
         try {
             const res = await fetch(`${API_BASE}/broadcasts`);
-            const data = await res.json();
+            const data = await safeJson(res);
             setBroadcasts(data);
         } catch (error) {
             console.error('Error fetching broadcasts:', error);
@@ -97,7 +98,7 @@ const MerchantPortal = () => {
 
     const fetchInventory = async () => {
         const medRes = await fetch(`${API_BASE}/inventory?merchantName=${encodeURIComponent(businessName)}`);
-        const meds = await medRes.json();
+        const meds = await safeJson(medRes);
         setInventory(meds.map(m => ({
             id: m._id || m.catalogId, // Use _id if it's a true inventory item, else use catalogId
             name: m.name,
@@ -110,7 +111,7 @@ const MerchantPortal = () => {
     const fetchOrders = async () => {
         try {
             const res = await fetch(`${API_BASE}/orders?merchantName=${encodeURIComponent(businessName)}`);
-            const data = await res.json();
+            const data = await safeJson(res);
             setOrders(data);
         } catch (error) {
             console.error("Error fetching orders:", error);

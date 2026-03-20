@@ -29,6 +29,7 @@ import DoctorMarketplace from './DoctorMarketplace';
 import VideoConsultation from './VideoConsultation';
 import { io } from 'socket.io-client';
 import { API_BASE, SOCKET_URL } from '../config';
+import { safeJson } from '../utils';
 
 const socket = io(SOCKET_URL);
 
@@ -250,7 +251,7 @@ const PatientPortal = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(item)
             });
-            const saved = await res.json();
+            const saved = await safeJson(res);
             setMedicalHistory([saved, ...medicalHistory]);
             setNewHistory({ condition: '', diagnosed: '', status: 'Ongoing' });
             setShowHistoryForm(false);
