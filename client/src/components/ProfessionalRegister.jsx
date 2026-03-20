@@ -5,6 +5,7 @@ import {
     FileText, ShieldCheck, Upload, ChevronRight, CheckCircle,
     Smartphone, Mail, Lock, Loader2, Award, Briefcase, MapPin
 } from 'lucide-react';
+import { API_BASE } from '../config';
 
 const ProfessionalRegister = () => {
     const { role } = useParams();
@@ -57,7 +58,7 @@ const ProfessionalRegister = () => {
         uploadData.append('file', file);
 
         try {
-            const res = await fetch('/api/upload', {
+            const res = await fetch(`${API_BASE}/upload`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` },
                 body: uploadData
@@ -118,7 +119,7 @@ const ProfessionalRegister = () => {
                 profileData.phoneNumber = formData.phoneNumber;
             }
 
-            const res = await fetch('/api/users/profile', {
+            const res = await fetch(`${API_BASE}/users/profile`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',

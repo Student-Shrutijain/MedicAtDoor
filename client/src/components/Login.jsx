@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, Mail, Lock, ArrowRight, ShieldCheck, Stethoscope, Store, UserPlus, LogIn, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE } from '../config';
 
 const Login = () => {
     const [isLogin, setIsLogin] = useState(true);
@@ -20,7 +21,7 @@ const Login = () => {
         setLoading(true);
         setError('');
 
-        const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+        const endpoint = isLogin ? `${API_BASE}/auth/login` : `${API_BASE}/auth/register`;
 
         try {
             const res = await fetch(endpoint, {

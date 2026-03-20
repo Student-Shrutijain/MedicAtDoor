@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Star, Clock, Calendar, CheckCircle, Loader2, Info, Search, MessageSquare } from 'lucide-react';
+import { API_BASE } from '../config';
 
 const DoctorMarketplace = ({ onSelect, specialty, searchQuery: externalSearchQuery }) => {
     const [doctors, setDoctors] = useState([]);
@@ -17,7 +18,7 @@ const DoctorMarketplace = ({ onSelect, specialty, searchQuery: externalSearchQue
 
     const fetchDoctors = async () => {
         try {
-            const response = await fetch('/api/doctors');
+            const response = await fetch(`${API_BASE}/doctors`);
             const data = await response.json();
             setDoctors(data);
         } catch (error) {
