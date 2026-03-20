@@ -43,7 +43,25 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.use(cors());
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://medic-at-door.vercel.app',
+    /\.vercel\.app$/,  // Allow any Vercel preview deployments
+];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        // Allow requests with no origin (Postman, mobile apps, curl)
+        if (!origin) return callback(null, true);
+        const isAllowed = allowedOrigins.some(allowed =>
+            typeof allowed === 'string' ? allowed === origin : allowed.test(origin)
+        );
+        if (isAllowed) return callback(null, true);
+        callback(new Error(`CORS: Origin ${origin} not allowed`));
+    },
+    credentials: true
+}));
 app.use(express.json());
 app.use(morgan('dev'));
 
