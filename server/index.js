@@ -28,7 +28,11 @@ import Admin from './models/Admin.js';
 // Middleware
 import { protect, authorize } from './middleware/auth.js';
 
-dotenv.config();
+import { fileURLToPath } from 'url';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -38,10 +42,6 @@ const io = new Server(httpServer, {
 
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI;
-
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const allowedOrigins = [
     'http://localhost:5173',
@@ -191,16 +191,29 @@ app.post('/api/upload', protect, upload.single('file'), (req, res) => {
 // --- REST OF THE API ---
 
 // MongoDB Connection
-mongoose.connect(MONGODB_URI)
-    .then(() => {
-        console.log('Connected to MongoDB Atlas');
-        seedDatabase();
-    })
-    .catch(err => console.error('MongoDB connection error:', err));
+try {
+    await mongoose.connect(MONGODB_URI, {
+        serverSelectionTimeoutMS: 5000,
+        family: 4
+    });
+    console.log('Connected to MongoDB Atlas');
+    seedDatabase();
+    
+    // Start server ONLY after successful DB connection
+    httpServer.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+} catch (err) {
+    console.error('\n❌ MongoDB connection error. Please ensure your current IP address is whitelisted in MongoDB Atlas!\nError details:', err.message);
+    process.exit(1);
+}
 
 // Database Seeding (Initial setup)
-const seedDatabase = async () => {
+async function seedDatabase() {
     try {
+        // Fix legacy index issue which causes E11000 duplicate key error on null usernames.
+        await User.collection.dropIndex('username_1').catch(() => {});
+        
         const seedUsersPath = path.join(__dirname, 'data', 'users.json');
         if (fs.existsSync(seedUsersPath)) {
             const initialUsers = JSON.parse(fs.readFileSync(seedUsersPath, 'utf8'));
@@ -908,8 +921,4 @@ app.use((err, req, res, next) => {
         message: err.message || 'Internal Server Error',
         stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
-});
-
-httpServer.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
 });
